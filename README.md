@@ -1,15 +1,50 @@
-# OlivoSport API
+# Tienda API
 
-API del e-commerce de OlivoSport: catálogo, carrito, pedidos, pagos con
-Wompi y reportes de ventas. FastAPI + SQLAlchemy + PostgreSQL.
+API del e-commerce de la tienda de bolsos: catálogo, carrito, pedidos,
+pagos con Wompi y reportes de ventas. FastAPI + SQLAlchemy + PostgreSQL.
+
+## ⚠️ Esto todavía está en montaje
+
+El código salió de OlivoSport y se le quitó la marca vieja. **`Tienda` /
+`tienda` es un placeholder**, no el nombre definitivo. Cuando se decida
+el nombre real, se cambia todo de una con:
+
+```bash
+git ls-files -z | xargs -0 sed -i 's/OlivoSport/NombreReal/g; s/tienda/nombrereal/g'
+```
+
+Ojo con la segunda sustitución: `tienda` es una palabra común en español
+y el `sed` de arriba también la pisa donde se usa como sustantivo normal.
+Conviene revisar el `git diff` antes de commitear.
+
+Lo que falta para que esto salga a producción:
+
+- [ ] **Base de datos**: crear el proyecto nuevo en supabase.com y pegar
+      el `DATABASE_URL` en el `.env` (y en Render). Ver `.env` para el
+      formato exacto.
+- [ ] **Bucket de imágenes**: en ese mismo Supabase, crear un bucket
+      público llamado `product-images` y poner `SUPABASE_URL` +
+      `SUPABASE_KEY` (la `service_role`, no la `anon`).
+- [ ] **Repositorio**: crearlo en GitHub y conectarlo. El remote de
+      OlivoSport ya se quitó, así que ahora mismo no hay ninguno:
+      `git remote add origin <url>` y `git push -u origin main`.
+- [ ] **Render**: desplegar con el `render.yaml` de la raíz
+      (New → Blueprint) y llenar las variables marcadas `sync: false`.
+- [ ] **Wompi**: cuenta propia de esta tienda. Las llaves de OlivoSport
+      se borraron a propósito — si se reusan, los pagos caen en el
+      dashboard de la otra tienda.
+- [ ] **Frontend**: remix del proyecto de Lovable, cambiando nombre y
+      colores. El CORS de esta API ya acepta cualquier `*.lovable.app`
+      (`app/core/cors.py`), así que no hay que tocar nada del backend.
+- [ ] **Nombre definitivo**: correr el `sed` de arriba.
 
 ## Arrancar en local
 
 Necesitas Python 3.10+ y una base PostgreSQL.
 
 ```bash
-git clone https://github.com/brandonjomeyker13-stack/OlivoSport-2026.git
-cd OlivoSport-2026
+git clone https://github.com/TU-USUARIO/TU-REPO.git
+cd tienda-online
 
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
@@ -21,8 +56,8 @@ cp .env.example .env             # y llena DATABASE_URL y SECRET_KEY
 Una base local rápida, si no quieres usar la de Supabase:
 
 ```bash
-docker run -d --name olivo-db \
-  -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=olivosport \
+docker run -d --name tienda-db \
+  -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=tienda \
   -p 5432:5432 postgres:16-alpine
 ```
 
@@ -83,7 +118,7 @@ Corren contra SQLite en memoria, así que no necesitan base ni Docker.
 Para correrlos contra Postgres de verdad:
 
 ```bash
-TEST_DATABASE_URL=postgresql+psycopg2://postgres:postgres@localhost:5432/olivosport_test pytest
+TEST_DATABASE_URL=postgresql+psycopg2://postgres:postgres@localhost:5432/tienda_test pytest
 ```
 
 Linter (la misma versión que corre en CI):
@@ -102,7 +137,7 @@ No hay endpoint para volverse admin (sería un agujero de seguridad). Se
 hace por consola; si el email ya existe, lo promueve en vez de duplicarlo:
 
 ```bash
-python -m app.scripts.create_admin admin@olivosport.com "Nombre Admin" "contraseña-segura"
+python -m app.scripts.create_admin admin@tienda.com "Nombre Admin" "contraseña-segura"
 ```
 
 En Render: Dashboard → el servicio → pestaña **Shell** → el mismo comando.
@@ -206,19 +241,27 @@ Configurar la URL del webhook en el dashboard de Wompi:
 
 ## Despliegue
 
-Está desplegado en Render. Comando de arranque:
+Va en Render, con el `render.yaml` de la raíz: en Render se entra por
+New → Blueprint, se conecta el repo y de ahí lee el archivo. Las
+variables marcadas `sync: false` **no** viajan en el archivo (son
+secretas): quedan vacías y se llenan a mano en Environment.
+
+El blueprint arranca con:
 
 ```bash
-uvicorn app.main_app:app --host 0.0.0.0 --port $PORT
+alembic upgrade head && uvicorn app.main_app:app --host 0.0.0.0 --port $PORT
 ```
+
+Las migraciones van en el `startCommand` y no en el `buildCommand`
+porque el build de Render se cachea y puede no volver a correr en un
+redeploy.
 
 También hay un `Dockerfile`:
 
 ```bash
-docker build -t olivosport-api .
-docker run --rm -p 8000:8000 --env-file .env olivosport-api
+docker build -t tienda-api .
+docker run --rm -p 8000:8000 --env-file .env tienda-api
 ```
 
-Las migraciones **no** corren solas al arrancar (dos instancias
-migrando a la vez es problema): corre `alembic upgrade head` antes de
-desplegar.
+Si desplegás por fuera del blueprint (Docker, otra plataforma), acordate
+de correr `alembic upgrade head` vos mismo antes de levantar la app.

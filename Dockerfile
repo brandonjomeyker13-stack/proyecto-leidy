@@ -1,8 +1,8 @@
 # Imagen de la API. El `dockerfile` que había antes estaba vacío (0 bytes),
 # así que cualquier build fallaba.
 #
-#   docker build -t olivosport-api .
-#   docker run --rm -p 8000:8000 --env-file .env olivosport-api
+#   docker build -t tienda-api .
+#   docker run --rm -p 8000:8000 --env-file .env tienda-api
 #
 # Las migraciones NO se corren en el arranque a propósito: si dos
 # instancias arrancan a la vez, dos `alembic upgrade head` compitiendo
@@ -25,8 +25,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Sin esto el proceso corre como root dentro del contenedor.
-RUN useradd --create-home --uid 1000 olivo && chown -R olivo:olivo /code
-USER olivo
+RUN useradd --create-home --uid 1000 appuser && chown -R appuser:appuser /code
+USER appuser
 
 EXPOSE 8000
 

@@ -28,7 +28,7 @@ def login(client, email: str, password: str) -> None:
 
 
 def test_refresh_desde_un_sitio_ajeno_es_rechazado(client, crear_usuario):
-    usuario = crear_usuario(email="cliente@pruebas.olivosport.co", password="Clave-Segura-123")
+    usuario = crear_usuario(email="cliente@pruebas.tienda.co", password="Clave-Segura-123")
     login(client, usuario.email, "Clave-Segura-123")
 
     respuesta = client.post(
@@ -41,7 +41,7 @@ def test_refresh_desde_un_sitio_ajeno_es_rechazado(client, crear_usuario):
 
 
 def test_logout_desde_un_sitio_ajeno_no_cierra_la_sesion(client, crear_usuario):
-    usuario = crear_usuario(email="cliente2@pruebas.olivosport.co", password="Clave-Segura-123")
+    usuario = crear_usuario(email="cliente2@pruebas.tienda.co", password="Clave-Segura-123")
     login(client, usuario.email, "Clave-Segura-123")
 
     respuesta = client.post(
@@ -54,10 +54,10 @@ def test_logout_desde_un_sitio_ajeno_no_cierra_la_sesion(client, crear_usuario):
 
 @pytest.mark.parametrize(
     "origin",
-    ["http://localhost:5173", "https://olivo-sport.lovable.app"],
+    ["http://localhost:5173", "https://tienda.lovable.app"],
 )
 def test_el_frontend_de_verdad_si_puede_refrescar(client, crear_usuario, origin):
-    usuario = crear_usuario(email=f"ok{hash(origin)}@pruebas.olivosport.co", password="Clave-1234")
+    usuario = crear_usuario(email=f"ok{hash(origin)}@pruebas.tienda.co", password="Clave-1234")
     login(client, usuario.email, "Clave-1234")
 
     respuesta = client.post("/api/v1/auth/refresh", headers={"Origin": origin})
@@ -98,7 +98,7 @@ def test_no_se_puede_esquivar_el_limite_falsificando_la_cadena(monkeypatch):
 def test_el_swagger_de_la_propia_api_sigue_funcionando(client, crear_usuario):
     """Same-origin: el /docs vive en el mismo host que la API, así que su
     Origin no está en la lista de dominios del frontend pero es legítimo."""
-    usuario = crear_usuario(email="swagger@pruebas.olivosport.co", password="Clave-1234")
+    usuario = crear_usuario(email="swagger@pruebas.tienda.co", password="Clave-1234")
     login(client, usuario.email, "Clave-1234")
 
     respuesta = client.post("/api/v1/auth/refresh", headers={"Origin": "http://testserver"})
@@ -116,7 +116,7 @@ def test_una_contrasena_mas_larga_que_bcrypt_se_rechaza():
     with pytest.raises(ValidationError, match="72 bytes"):
         UserCreate(
             name="Cliente",
-            email="largo@pruebas.olivosport.co",
+            email="largo@pruebas.tienda.co",
             password="A" * 73,
             accepted_terms=True,
         )
@@ -131,7 +131,7 @@ def test_el_limite_se_cuenta_en_bytes_no_en_caracteres():
 
 
 def test_las_contrasenas_obvias_se_rechazan():
-    for password in ["12345678", "Password123", "olivosport"]:
+    for password in ["12345678", "Password123", "tiendaonline"]:
         with pytest.raises(ValidationError, match="demasiado común"):
             SetPasswordRequest(new_password=password)
 

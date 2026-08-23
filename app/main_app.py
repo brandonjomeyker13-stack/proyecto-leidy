@@ -20,9 +20,9 @@ from app.core.cors import ALLOWED_ORIGIN_REGEX, ALLOWED_ORIGINS
 from app.core.limiter import limiter
 from app.core.security_headers import SecurityHeadersMiddleware
 
-logger = logging.getLogger("olivosport.errors")
+logger = logging.getLogger("tienda.errors")
 
-app = FastAPI(title="OlivoSport API", version="1.0.0")
+app = FastAPI(title="Tienda API", version="1.0.0")
 
 
 @app.exception_handler(Exception)
@@ -86,7 +86,7 @@ app.include_router(sales.router, prefix="/api/v1/sales", tags=["sales"])
 
 @app.get("/")
 def root():
-    return {"message": "OlivoSport API está corriendo"}
+    return {"message": "Tienda API está corriendo"}
 
 
 @app.get("/health")

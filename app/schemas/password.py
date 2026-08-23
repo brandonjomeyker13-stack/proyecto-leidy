@@ -37,7 +37,7 @@ _PASSWORDS_COMUNES = frozenset(
         "colombia",
         "contrasena",
         "contraseña",
-        "olivosport",
+        "tiendaonline",
         "administrador",
     }
 )

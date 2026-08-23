@@ -81,19 +81,19 @@ def test_logout_es_idempotente(db, usuario):
 def test_usuario_creado_con_google_no_puede_entrar_con_contrasena(db, crear_usuario):
     """Un usuario sin password_hash no debe poder loguearse por más que
     mande cualquier contraseña (incluida una vacía)."""
-    crear_usuario(email="google@pruebas.olivosport.co", password=None)
+    crear_usuario(email="google@pruebas.tienda.co", password=None)
 
     for intento in ("", "password-de-prueba", "cualquier-cosa"):
         with pytest.raises(user_service.InvalidCredentialsError):
-            user_service.authenticate(db, email="google@pruebas.olivosport.co", password=intento)
+            user_service.authenticate(db, email="google@pruebas.tienda.co", password=intento)
 
 
 def test_usuario_inactivo_no_puede_loguearse(db, crear_usuario):
-    crear_usuario(email="inactivo@pruebas.olivosport.co", password="password-de-prueba", is_active=False)
+    crear_usuario(email="inactivo@pruebas.tienda.co", password="password-de-prueba", is_active=False)
 
     with pytest.raises(user_service.InvalidCredentialsError):
         user_service.authenticate(
-            db, email="inactivo@pruebas.olivosport.co", password="password-de-prueba"
+            db, email="inactivo@pruebas.tienda.co", password="password-de-prueba"
         )
 
 

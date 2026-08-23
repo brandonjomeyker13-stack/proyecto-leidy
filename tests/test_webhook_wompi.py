@@ -134,7 +134,7 @@ def test_referencia_desconocida_responde_200_para_que_wompi_no_reintente(client,
     respuesta = client.post(
         WEBHOOK_URL,
         json=evento_wompi(
-            reference="olivosport-999-inexistente", status="APPROVED", amount_in_cents=5000000
+            reference="tienda-999-inexistente", status="APPROVED", amount_in_cents=5000000
         ),
     )
 
@@ -162,12 +162,12 @@ def test_un_evento_incompleto_no_deja_los_datos_del_comprador_en_el_log(
     del comprador: si se loguea el payload entero, esa información queda
     guardada en los logs de Render sin necesidad."""
     evento = evento_wompi(reference=None, status="APPROVED", amount_in_cents=5000)
-    evento["data"]["transaction"]["customer_email"] = "cliente@pruebas.olivosport.co"
+    evento["data"]["transaction"]["customer_email"] = "cliente@pruebas.tienda.co"
     evento["data"]["transaction"]["customer_data"] = {"phone_number": "3001234567"}
 
     with caplog.at_level("WARNING"):
         assert client.post(WEBHOOK_URL, json=evento).status_code == 200
 
-    assert "cliente@pruebas.olivosport.co" not in caplog.text
+    assert "cliente@pruebas.tienda.co" not in caplog.text
     assert "3001234567" not in caplog.text
     assert "reference" in caplog.text

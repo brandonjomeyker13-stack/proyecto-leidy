@@ -16,7 +16,7 @@ from app.core.wompi_signature import verify_event_signature
 from app.db.session import get_db
 from app.services import order_service
 
-logger = logging.getLogger("olivosport.webhooks")
+logger = logging.getLogger("tienda.webhooks")
 
 router = APIRouter()
 

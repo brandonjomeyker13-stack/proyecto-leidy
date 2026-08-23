@@ -19,7 +19,7 @@ from app.models.order import (
 )
 from app.repositories import cart_repository, product_repository
 
-logger = logging.getLogger("olivosport.orders")
+logger = logging.getLogger("tienda.orders")
 
 # Estados finales que puede reportar Wompi para una transacción. Wompi
 # también puede mandar eventos con status intermedios (ej. "PENDING") que
@@ -125,7 +125,7 @@ def _generate_reference(order_id: int) -> str:
     # Wompi no permite reusar una referencia jamás, ni siquiera para el
     # mismo pedido en un segundo intento de pago. El sufijo aleatorio
     # evita choques si el usuario reintenta pagar el mismo pedido.
-    return f"olivosport-{order_id}-{secrets.token_hex(4)}"
+    return f"tienda-{order_id}-{secrets.token_hex(4)}"
 
 
 def to_cents(amount: Decimal) -> int:

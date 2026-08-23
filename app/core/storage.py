@@ -16,7 +16,7 @@ from supabase import create_client
 
 from app.core.config import settings
 
-logger = logging.getLogger("olivosport.storage")
+logger = logging.getLogger("tienda.storage")
 
 BUCKET_NAME = "product-images"
 

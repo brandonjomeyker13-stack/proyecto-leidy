@@ -45,7 +45,7 @@ jobs:
         image: postgres:16-alpine
         env:
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: olivosport
+          POSTGRES_DB: tienda
         ports:
           - 5432:5432
         options: >-
@@ -54,7 +54,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/olivosport
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/tienda
       SECRET_KEY: clave-solo-para-ci
     steps:
       - uses: actions/checkout@v4
@@ -70,5 +70,5 @@ jobs:
         run: alembic downgrade base
       - name: Las migraciones de datos no pierden nada
         env:
-          MIGRATION_TEST_DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/olivosport
+          MIGRATION_TEST_DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/tienda
         run: pytest tests/test_migracion_imagenes.py -q

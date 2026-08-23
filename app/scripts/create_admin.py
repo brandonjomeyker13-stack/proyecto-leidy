@@ -6,7 +6,7 @@ seguridad enorme).
 Uso (desde la raíz del proyecto, con el .env / variables de entorno
 correctas para DATABASE_URL):
 
-    python -m app.scripts.create_admin admin@olivosport.com "Nombre Admin" "contraseña-segura"
+    python -m app.scripts.create_admin admin@tienda.com "Nombre Admin" "contraseña-segura"
 
 Si el email ya existe, lo promueve a is_admin=True en vez de crear un
 usuario duplicado. La contraseña solo se usa si el usuario es nuevo.

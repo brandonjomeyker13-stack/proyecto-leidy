@@ -97,7 +97,7 @@ def test_no_se_puede_cancelar_el_pedido_de_otra_persona(db, usuario, crear_usuar
     producto = crear_producto(stock=10)
     cart_repository.create(db, user_id=usuario.id, product_id=producto.id, quantity=1)
     pedido = order_service.create_order_from_cart(db, user_id=usuario.id)
-    intruso = crear_usuario(email="intruso@pruebas.olivosport.co")
+    intruso = crear_usuario(email="intruso@pruebas.tienda.co")
 
     with pytest.raises(order_service.OrderNotFoundError):
         order_service.cancel_order(db, pedido.id, intruso.id)

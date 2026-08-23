@@ -1,4 +1,4 @@
-"""Configuración de Alembic para OlivoSport.
+"""Configuración de Alembic para Tienda.
 
 La URL de la base NO se escribe en alembic.ini: se lee de
 `settings.DATABASE_URL` (la misma variable que usa la app), para que

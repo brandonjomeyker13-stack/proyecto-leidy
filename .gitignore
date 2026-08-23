@@ -16,3 +16,8 @@ build/
 .vscode/
 .idea/
 .ruff_cache/
+
+# Fotos de producto para subir por el panel de admin. No van al repo:
+# las imagenes viven en Supabase Storage (bucket product-images), aca
+# solo estan a mano para cargarlas. Ver assets/PRODUCTOS.md.
+assets/

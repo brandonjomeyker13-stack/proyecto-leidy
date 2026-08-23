@@ -1,0 +1,98 @@
+# Blueprint de Render para la API de la tienda.
+#
+# Como usarlo: en Render -> New -> Blueprint -> conectar el repo. Render
+# lee este archivo y crea el servicio. Las variables marcadas con
+# `sync: false` NO viajan aca (son secretas): quedan vacias y se llenan
+# a mano en Dashboard -> el servicio -> Environment.
+services:
+  - type: web
+    # El nombre define la URL. Ya esta desplegado como:
+    #   https://proyecto-leidy.onrender.com
+    name: proyecto-leidy
+    runtime: python
+    region: oregon
+
+    # OJO al pagar: si subes el plan desde el panel pero esta linea sigue
+    # diciendo `free`, una sincronizacion del Blueprint puede devolverte
+    # al plan gratis — y con el, el servicio durmiendose a los 15 min.
+    plan: free
+
+    # Render da por vivo el servicio cuando esta ruta responde 200. Sin
+    # esto solo revisa que el puerto este abierto, y un arranque que
+    # falla a medias podria darse por bueno. GET / devuelve el mensaje
+    # de "la API esta corriendo" (app/main_app.py).
+    healthCheckPath: /
+
+    buildCommand: "pip install -r requirements.txt"
+
+    # Las migraciones corren antes de levantar la API, en el startCommand
+    # y no en el buildCommand, porque el build de Render se cachea y
+    # puede no re-ejecutarse en un redeploy. Sin migraciones pendientes,
+    # `upgrade head` tarda milisegundos.
+    #
+    # OJO: el modulo es app.main_app, NO app.main — el main.py de la raiz
+    # solo hace create_all y no levanta nada.
+    startCommand: "alembic upgrade head && uvicorn app.main_app:app --host 0.0.0.0 --port $PORT"
+
+    envVars:
+      # Fijar la version evita que Render cambie de Python por su cuenta
+      # y rompa un deploy que ayer funcionaba. Es la misma de local.
+      - key: PYTHON_VERSION
+        value: "3.12.3"
+
+      # --- Obligatorias (se pegan en el dashboard) ---
+      # DATABASE_URL: la del proyecto NUEVO de Supabase, no la de la otra
+      # tienda. SECRET_KEY: distinta por ambiente, generarla con
+      #   python -c "import secrets; print(secrets.token_urlsafe(48))"
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        sync: false
+
+      # En production la cookie del refresh token sale con Secure=True,
+      # que es lo que necesita el frontend de Lovable (otro dominio).
+      - key: ENVIRONMENT
+        value: production
+
+      # Render mete un proxy adelante: si esto queda en 0, TODOS los
+      # usuarios comparten el mismo cupo de rate limit porque la app ve
+      # una sola IP (la del proxy). Ver app/core/limiter.py.
+      - key: TRUSTED_PROXY_HOPS
+        value: "1"
+
+      # --- Opcionales ---
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "15"
+      - key: REFRESH_TOKEN_EXPIRE_DAYS
+        value: "30"
+
+      # Con una sola instancia en plan free, memory:// alcanza. Si algun
+      # dia hay varias, hay que apuntarlo a un Redis compartido o cada
+      # instancia contara por su lado.
+      - key: RATE_LIMIT_STORAGE_URI
+        value: "memory://"
+
+      # Sin esto /auth/google no funciona (el resto del login si). Tiene
+      # que ser el MISMO client id que use el frontend.
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+
+      # Supabase Storage: sin esto no se suben imagenes de productos.
+      # El bucket tiene que llamarse product-images (app/core/storage.py).
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+
+      # Wompi: de la cuenta propia de ESTA tienda. Sin WOMPI_EVENTS_SECRET
+      # el webhook responde 500 y rechaza todos los eventos.
+      - key: WOMPI_PUBLIC_KEY
+        sync: false
+      - key: WOMPI_PRIVATE_KEY
+        sync: false
+      - key: WOMPI_INTEGRITY_SECRET
+        sync: false
+      - key: WOMPI_EVENTS_SECRET
+        sync: false
+      - key: WOMPI_CURRENCY
+        value: COP

@@ -5,7 +5,7 @@ Postgres ni Docker, y cada test arranca con la base vacía. Si quieres
 correrlos contra Postgres (para validar cosas propias del motor, como
 `date_trunc` en los reportes), exporta `TEST_DATABASE_URL`:
 
-    TEST_DATABASE_URL=postgresql+psycopg2://user:pass@localhost/olivosport_test pytest
+    TEST_DATABASE_URL=postgresql+psycopg2://user:pass@localhost/tienda_test pytest
 
 Las variables de entorno que necesita `app.core.config` las define
 `pytest.ini`, así que importar la app desde acá es seguro.
@@ -125,7 +125,7 @@ def admin_client(client, db):
     """
     admin = User(
         name="Admin de prueba",
-        email="admin@pruebas.olivosport.co",
+        email="admin@pruebas.tienda.co",
         password_hash=hash_password("password-de-prueba"),
         is_active=True,
         is_admin=True,
@@ -181,7 +181,7 @@ def crear_producto(db, categoria):
 def crear_usuario(db):
     def _crear_usuario(
         *,
-        email: str = "cliente@pruebas.olivosport.co",
+        email: str = "cliente@pruebas.tienda.co",
         password: str | None = "password-de-prueba",
         is_active: bool = True,
     ) -> User:

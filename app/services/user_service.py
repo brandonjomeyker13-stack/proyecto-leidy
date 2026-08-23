@@ -8,7 +8,7 @@ from app.core.security import hash_password, verify_password
 from app.models.user import User
 from app.repositories import user_repository
 
-logger = logging.getLogger("olivosport.users")
+logger = logging.getLogger("tienda.users")
 
 
 class EmailAlreadyRegisteredError(Exception):
