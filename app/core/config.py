@@ -15,6 +15,16 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ENVIRONMENT: str = "local"
 
+    # Aceptar CUALQUIER subdominio *.lovable.app como origen de confianza.
+    # En local siempre se acepta (el preview de Lovable cambia de
+    # subdominio por sesión). En producción está apagado a propósito:
+    # con allow_credentials activo, un origen de confianza puede llamar a
+    # /auth/refresh con la cookie de un cliente y LEER su access token —
+    # o sea que dejarlo abierto le da esa puerta a cualquier proyecto de
+    # Lovable del mundo, no solo al nuestro. Se prende temporalmente
+    # (ALLOW_LOVABLE_PREVIEW=true) solo mientras se construye el frontend.
+    ALLOW_LOVABLE_PREVIEW: bool = False
+
     # Expiración del access token (JWT), en minutos. Corto a propósito:
     # si se roba, la ventana de uso es chica. La sesión larga la maneja
     # el refresh token de abajo.

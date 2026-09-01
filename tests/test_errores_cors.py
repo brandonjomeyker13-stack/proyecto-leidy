@@ -21,7 +21,7 @@ from fastapi import APIRouter
 
 from app.main_app import app
 
-ORIGEN_DEL_FRONTEND = "https://proyecto-l.lovable.app"
+ORIGEN_DEL_FRONTEND = "https://sohee.org"
 
 # La ruta se cuelga de la app REAL a propósito: lo que se está probando
 # es el orden de middlewares de app/main_app.py, no una app de mentira

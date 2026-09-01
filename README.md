@@ -33,9 +33,11 @@ Lo que falta para que esto salga a producción:
 - [ ] **Wompi**: cuenta propia de esta tienda. Las llaves de OlivoSport
       se borraron a propósito — si se reusan, los pagos caen en el
       dashboard de la otra tienda.
-- [ ] **Frontend**: remix del proyecto de Lovable, cambiando nombre y
-      colores. El CORS de esta API ya acepta cualquier `*.lovable.app`
-      (`app/core/cors.py`), así que no hay que tocar nada del backend.
+- [x] **Frontend**: en Lovable, con dominio propio `sohee.org`. Ese
+      dominio ya está en `ALLOWED_ORIGINS` (`app/core/cors.py`).
+      El comodín `*.lovable.app` solo funciona en local; para usar el
+      preview contra la API de producción hay que prender
+      `ALLOW_LOVABLE_PREVIEW=true` en Render, y apagarlo al terminar.
 - [ ] **Nombre definitivo**: correr el `sed` de arriba.
 
 ## Arrancar en local

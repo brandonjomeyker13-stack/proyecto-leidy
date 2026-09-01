@@ -72,6 +72,15 @@ services:
       - key: RATE_LIMIT_STORAGE_URI
         value: "memory://"
 
+      # Aceptar cualquier subdominio *.lovable.app como origen de
+      # confianza. Apagado a proposito: con el dominio propio
+      # (sohee.org) ya funcionando no hace falta, y dejarlo abierto le da
+      # a cualquier proyecto de Lovable acceso a /auth/refresh con la
+      # cookie de nuestros clientes. Prenderlo SOLO mientras se
+      # construye el frontend, y apagarlo despues.
+      - key: ALLOW_LOVABLE_PREVIEW
+        value: "false"
+
       # Sin esto /auth/google no funciona (el resto del login si). Tiene
       # que ser el MISMO client id que use el frontend.
       - key: GOOGLE_CLIENT_ID
