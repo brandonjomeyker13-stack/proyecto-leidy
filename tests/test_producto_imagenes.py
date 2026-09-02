@@ -135,7 +135,7 @@ def test_despues_de_borrar_se_puede_volver_a_llenar_hasta_4(admin_client, crear_
 
 def test_no_se_puede_borrar_una_imagen_de_otro_producto(admin_client, crear_producto):
     producto = crear_producto()
-    otro = crear_producto(nombre="Otra camiseta")
+    otro = crear_producto(nombre="Otro morral")
     imagen = subir(admin_client, producto.id).json()["images"][0]
 
     respuesta = admin_client.delete(f"/api/v1/products/{otro.id}/images/{imagen['id']}")

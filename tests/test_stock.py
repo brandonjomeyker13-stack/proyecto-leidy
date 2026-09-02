@@ -39,7 +39,7 @@ def test_crear_pedido_descuenta_el_stock_y_congela_precio_y_costo(db, usuario, c
 def test_sin_stock_suficiente_no_deja_reservas_a_medias(db, usuario, crear_producto):
     """Si el segundo producto no alcanza, el primero NO puede quedar
     descontado: o se reserva todo el pedido, o no se reserva nada."""
-    disponible = crear_producto(nombre="Camiseta", stock=10)
+    disponible = crear_producto(nombre="Morral", stock=10)
     agotado = crear_producto(nombre="Pantaloneta", stock=1)
     cart_repository.create(db, user_id=usuario.id, product_id=disponible.id, quantity=2)
     cart_repository.create(db, user_id=usuario.id, product_id=agotado.id, quantity=5)

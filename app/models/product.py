@@ -10,7 +10,21 @@ class Product(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(150), nullable=False, index=True)
     color = Column(String(50), nullable=False)
-    size = Column(String(20), nullable=False)
+    # Medidas en centímetros. Numeric y no Integer porque un bolso
+    # puede medir 43.5 cm, y redondear a 43 en la ficha de un producto
+    # que se compra por internet (sin poder tocarlo) es información que
+    # el cliente sí nota.
+    height_cm = Column(Numeric(5, 1), nullable=True)
+    width_cm = Column(Numeric(5, 1), nullable=True)
+
+    # Cuántos compartimientos tiene. Número y no texto ("varios") para
+    # poder mostrarlo y filtrarlo; si no se sabe, queda en NULL y el
+    # frontend simplemente no muestra la línea.
+    compartments = Column(Integer, nullable=True)
+
+    # Ej. "Lona satinada". Texto libre: hay demasiadas variantes como
+    # para encerrarlo en un catálogo cerrado.
+    material = Column(String(100), nullable=True)
     price = Column(Numeric(10, 2), nullable=False)
     stock = Column(Integer, nullable=False, default=0)
     in_stock = Column(Boolean, default=True, nullable=False)

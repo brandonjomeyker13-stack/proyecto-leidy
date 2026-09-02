@@ -143,7 +143,7 @@ def admin_client(client, db):
 
 @pytest.fixture
 def categoria(db) -> Category:
-    category = Category(name="Camisetas")
+    category = Category(name="Morrales")
     db.add(category)
     db.commit()
     db.refresh(category)
@@ -154,15 +154,18 @@ def categoria(db) -> Category:
 def crear_producto(db, categoria):
     def _crear_producto(
         *,
-        nombre: str = "Camiseta deportiva",
+        nombre: str = "Morral deportivo",
         stock: int = 10,
         precio: str = "50000.00",
         costo: str = "30000.00",
     ) -> Product:
         product = Product(
             name=nombre,
-            color="negro",
-            size="M",
+            color="gris",
+            height_cm=43,
+            width_cm=33,
+            compartments=3,
+            material="Lona satinada",
             price=Decimal(precio),
             cost=Decimal(costo),
             stock=stock,

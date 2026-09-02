@@ -16,7 +16,10 @@ class ProductImageRead(BaseModel):
 class ProductBase(BaseModel):
     name: str = Field(..., min_length=2, max_length=150)
     color: str = Field(..., min_length=2, max_length=50)
-    size: str = Field(..., min_length=1, max_length=20)
+    height_cm: Decimal | None = Field(default=None, gt=0, decimal_places=1)
+    width_cm: Decimal | None = Field(default=None, gt=0, decimal_places=1)
+    compartments: int | None = Field(default=None, ge=0)
+    material: str | None = Field(default=None, min_length=2, max_length=100)
     price: Decimal = Field(..., gt=0, decimal_places=2)
     stock: int = Field(default=0, ge=0)
     in_stock: bool = True
@@ -37,7 +40,10 @@ class ProductUpdate(BaseModel):
 
     name: str | None = Field(default=None, min_length=2, max_length=150)
     color: str | None = Field(default=None, min_length=2, max_length=50)
-    size: str | None = Field(default=None, min_length=1, max_length=20)
+    height_cm: Decimal | None = Field(default=None, gt=0, decimal_places=1)
+    width_cm: Decimal | None = Field(default=None, gt=0, decimal_places=1)
+    compartments: int | None = Field(default=None, ge=0)
+    material: str | None = Field(default=None, min_length=2, max_length=100)
     price: Decimal | None = Field(default=None, gt=0, decimal_places=2)
     stock: int | None = Field(default=None, ge=0)
     category_id: int | None = Field(default=None)

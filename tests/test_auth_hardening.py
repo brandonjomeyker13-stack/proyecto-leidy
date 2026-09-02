@@ -137,4 +137,4 @@ def test_las_contrasenas_obvias_se_rechazan():
 
 
 def test_una_contrasena_normal_pasa():
-    assert SetPasswordRequest(new_password="Camiseta-Verde-2026").new_password
+    assert SetPasswordRequest(new_password="Morral-Gris-2026").new_password

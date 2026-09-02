@@ -52,16 +52,24 @@ def create(
     *,
     name: str,
     color: str,
-    size: str,
     price,
     stock: int,
     category_id: int,
+    # Atributos físicos del bolso: todos opcionales, se pueden completar
+    # después de crear el producto.
+    height_cm=None,
+    width_cm=None,
+    compartments: int | None = None,
+    material: str | None = None,
     cost=None,
 ) -> Product:
     product = Product(
         name=name,
         color=color,
-        size=size,
+        height_cm=height_cm,
+        width_cm=width_cm,
+        compartments=compartments,
+        material=material,
         price=price,
         stock=stock,
         in_stock=stock > 0,
