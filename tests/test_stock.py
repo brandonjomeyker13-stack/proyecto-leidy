@@ -129,17 +129,17 @@ def test_pedido_abandonado_expira_y_libera_el_stock(db, usuario, crear_producto)
     assert producto.stock == 10
 
 
-def test_entrega_sin_confirmar_se_autoconfirma_pasado_el_plazo(db, usuario, crear_producto):
+def test_la_duena_puede_cerrar_un_pedido_que_nadie_confirmo(db, usuario, crear_producto):
+    """Sin esto, un pedido queda abierto para siempre porque la clienta no
+    volvió a la app. Antes lo cerraba un barrido a los 5 días; ahora es la
+    dueña quien decide, y queda la fecha de cuándo lo cerró."""
     producto = crear_producto(stock=10)
     cart_repository.create(db, user_id=usuario.id, product_id=producto.id, quantity=1)
     pedido = order_service.create_order_from_cart(db, user_id=usuario.id)
     pedido.status = OrderStatus.AWAITING_CONFIRMATION
-    pedido.delivered_at = datetime.now(timezone.utc) - timedelta(
-        days=order_service.DELIVERY_AUTO_CONFIRM_DAYS + 1
-    )
     db.commit()
 
-    assert order_service.auto_confirm_stale_deliveries(db) == 1
+    order_service.update_delivery_status(db, pedido.id, OrderStatus.DELIVERED)
 
     db.refresh(pedido)
     assert pedido.status == OrderStatus.DELIVERED
@@ -157,7 +157,9 @@ def test_el_admin_no_puede_saltarse_estados_de_entrega(db, usuario, crear_produc
 
     pedido.status = OrderStatus.APPROVED
     db.commit()
-    # DELIVERED solo lo pone el cliente (o la autoconfirmación), nunca el admin.
+    # Desde APPROVED no se puede saltar a DELIVERED: hay que pasar por
+    # IN_TRANSIT y AWAITING_CONFIRMATION. La dueña puede cerrar el pedido,
+    # pero solo después de haber declarado que lo entregó y lo cobró.
     with pytest.raises(order_service.InvalidStatusTransitionError):
         order_service.update_delivery_status(db, pedido.id, OrderStatus.DELIVERED)
 

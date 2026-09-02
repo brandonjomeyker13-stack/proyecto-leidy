@@ -127,8 +127,11 @@ def confirm_order_delivery(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """El CLIENTE confirma que ya recibió su pedido (solo el dueño del
-    pedido puede hacerlo). Si no confirma en 5 días, se autoconfirma solo."""
+    """El CLIENTE confirma que ya recibió su pedido, y que pagó si era
+    contra entrega (solo el dueño del pedido puede hacerlo).
+
+    Si nunca confirma, el pedido NO se cierra solo: lo cierra la dueña
+    desde el panel (PATCH /{id}/status con DELIVERED)."""
     try:
         return order_service.confirm_delivery(db, order_id, current_user.id)
     except order_service.OrderNotFoundError as exc:

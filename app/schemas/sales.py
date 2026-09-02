@@ -5,7 +5,10 @@ from pydantic import BaseModel
 
 class SalesSummary(BaseModel):
     """Ingresos/costo/ganancia calculados SOLO sobre pedidos que ya se
-    cobraron de verdad (ver models.order.SALE_ORDER_STATUSES).
+    cobraron de verdad, o sea los que tienen `Order.paid_at` puesto.
+
+    No es lo mismo que "pedidos entregados": un contra entrega en camino
+    todavía no cobró nada, y contarlo acá mostraría plata que no está.
 
     items_without_cost > 0 significa que algunos productos vendidos no
     tenían `cost` cargado en ese momento — la ganancia mostrada está

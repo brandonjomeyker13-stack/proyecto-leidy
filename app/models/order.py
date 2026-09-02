@@ -34,6 +34,20 @@ class PaymentMethod(str, enum.Enum):
 CONTRA_ENTREGA = {PaymentMethod.CASH, PaymentMethod.NEQUI}
 
 
+class ClosedBy(str, enum.Enum):
+    """Quién cerró el pedido, o sea quién lo llevó a DELIVERED.
+
+    Existe porque sin esto un pedido que la clienta confirmó y uno que la
+    tienda cerró sola se ven IDÉNTICOS en la base: los dos quedan en
+    DELIVERED con una fecha en `delivery_confirmed_at`. Y no son lo
+    mismo: uno es un acuerdo de las dos partes y el otro es una
+    declaración de una sola.
+    """
+
+    CUSTOMER = "CUSTOMER"  # la clienta confirmó que recibió (y pagó)
+    SELLER = "SELLER"  # la tienda lo cerró sin respuesta de la clienta
+
+
 class OrderStatus(str, enum.Enum):
     PENDING = "PENDING"
 
@@ -55,7 +69,7 @@ class OrderStatus(str, enum.Enum):
     # Logística: solo se llega acá DESPUÉS de APPROVED, nunca directo.
     IN_TRANSIT = "IN_TRANSIT"  # la dueña ya salió a entregar el pedido
     AWAITING_CONFIRMATION = "AWAITING_CONFIRMATION"  # la dueña dice que ya entregó, falta que el cliente confirme
-    DELIVERED = "DELIVERED"  # ambas partes de acuerdo (o se confirmó solo tras 5 días sin respuesta)
+    DELIVERED = "DELIVERED"  # cerrado: lo confirmó la clienta, o lo cerró la dueña
 
 
 # Los grupos viven acá, junto al enum, y no en un service: los usan tanto
@@ -79,8 +93,6 @@ COMMITTED_ORDER_STATUSES = {
     OrderStatus.DELIVERED,
 }
 
-# Nombre viejo, mantenido para no romper imports existentes.
-SALE_ORDER_STATUSES = COMMITTED_ORDER_STATUSES
 
 # Agrupación para separar "en curso" de "finalizados" en el historial del
 # cliente (GET /orders/?stage=active|completed).
@@ -141,9 +153,19 @@ class Order(Base):
     # retracto de la Ley 1480 (5 días hábiles desde la entrega).
     delivered_at = Column(DateTime(timezone=True), nullable=True)
     # delivery_confirmed_at: cuándo quedó en DELIVERED — porque el
-    # cliente confirmó, o porque pasaron 5 días sin respuesta y se
-    # autoconfirmó.
+    # cliente confirmó, o porque la dueña lo cerró desde el panel al ver
+    # que el cliente nunca volvió a la app.
+    #
+    # OJO: esta fecha NO distingue quién de los dos lo cerró. Si algún día
+    # hace falta saberlo (una discusión sobre una entrega, por ejemplo),
+    # eso es una columna nueva, no se puede deducir de acá.
     delivery_confirmed_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Quién lo cerró. En NULL mientras el pedido siga abierto.
+    #
+    # Un pedido en DELIVERED con esto en NULL es de antes de que existiera
+    # la columna: no se sabe quién lo cerró, y no se puede deducir.
+    closed_by = Column(Enum(ClosedBy), nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

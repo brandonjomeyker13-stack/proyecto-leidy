@@ -11,9 +11,10 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.order import (
     ACTIVE_ORDER_STATUSES,
+    COMMITTED_ORDER_STATUSES,
     COMPLETED_ORDER_STATUSES,
     CONTRA_ENTREGA,
-    SALE_ORDER_STATUSES,
+    ClosedBy,
     Order,
     OrderItem,
     OrderStatus,
@@ -28,22 +29,22 @@ logger = logging.getLogger("tienda.orders")
 # simplemente ignoramos hasta que llegue el estado final.
 _WOMPI_TERMINAL_STATUSES = {"APPROVED", "DECLINED", "VOIDED", "ERROR"}
 
-# Transiciones de LOGÍSTICA que puede disparar la dueña desde el panel
-# admin. OJO: DELIVERED NO está acá a propósito — a ese estado solo se
-# llega por confirm_delivery() (el cliente) o auto_confirm_stale_deliveries()
-# (a los 5 días sin respuesta), nunca porque el admin lo ponga directo.
+# Transiciones de LOGÍSTICA que puede disparar la dueña desde el panel.
+# Nunca se puede saltar un paso: para cerrar un pedido hay que haber
+# declarado antes que se entregó y se cobró.
 _DELIVERY_TRANSITIONS: dict[OrderStatus, set[OrderStatus]] = {
     # Wompi: se pagó antes, así que la logística arranca desde APPROVED.
     OrderStatus.APPROVED: {OrderStatus.IN_TRANSIT},
     # Contra entrega: no hay pago previo, arranca desde CONFIRMED.
     OrderStatus.CONFIRMED: {OrderStatus.IN_TRANSIT},
     OrderStatus.IN_TRANSIT: {OrderStatus.AWAITING_CONFIRMATION},
+    # Cerrar el pedido cuando la clienta no confirma. Antes esto lo hacía
+    # solo un barrido a los 5 días; se quitó porque corría de forma
+    # perezosa (solo si alguien listaba pedidos) y no era base confiable
+    # para un acuerdo que se le muestra a la clienta. Ahora es explícito:
+    # alguien decide cerrarlo y queda registrado quién y cuándo.
+    OrderStatus.AWAITING_CONFIRMATION: {OrderStatus.DELIVERED},
 }
-
-# Si el cliente no confirma la entrega en este plazo, se autoconfirma —
-# para que un pedido no quede esperando para siempre solo porque el
-# cliente no volvió a entrar a la página.
-DELIVERY_AUTO_CONFIRM_DAYS = 5
 
 # Después de este tiempo sin respuesta de Wompi, asumimos que el usuario
 # abandonó el pago y liberamos el pedido (no bloquea stock ni el producto).
@@ -99,31 +100,6 @@ def expire_stale_orders(db: Session) -> int:
     if stale_orders:
         db.commit()
     return len(stale_orders)
-
-
-def auto_confirm_stale_deliveries(db: Session) -> int:
-    """Si pasaron DELIVERY_AUTO_CONFIRM_DAYS días desde que la dueña
-    marcó un pedido como entregado (AWAITING_CONFIRMATION) y el cliente
-    nunca confirmó, se marca DELIVERED de todos modos. Se llama de forma
-    perezosa (igual que expire_stale_orders), no hace falta un cron aparte."""
-    cutoff = datetime.now(timezone.utc) - timedelta(days=DELIVERY_AUTO_CONFIRM_DAYS)
-    updated = (
-        db.query(Order)
-        .filter(
-            Order.status == OrderStatus.AWAITING_CONFIRMATION,
-            Order.delivered_at < cutoff,
-        )
-        .update(
-            {
-                "status": OrderStatus.DELIVERED,
-                "delivery_confirmed_at": datetime.now(timezone.utc),
-            },
-            synchronize_session=False,
-        )
-    )
-    if updated:
-        db.commit()
-    return updated
 
 
 def _generate_reference(order_id: int) -> str:
@@ -407,7 +383,6 @@ def get_checkout_payload_for_order(db: Session, order_id: int, user_id: int) -> 
 
 def list_my_orders(db: Session, user_id: int, stage: str | None = None) -> list[Order]:
     expire_stale_orders(db)
-    auto_confirm_stale_deliveries(db)
     query = db.query(Order).filter(Order.user_id == user_id)
     if stage == "active":
         query = query.filter(Order.status.in_(ACTIVE_ORDER_STATUSES))
@@ -423,7 +398,6 @@ def list_all_orders(
     status: OrderStatus | None = None,
 ) -> list[Order]:
     expire_stale_orders(db)
-    auto_confirm_stale_deliveries(db)
     query = db.query(Order)
     if status is not None:
         query = query.filter(Order.status == status)
@@ -431,10 +405,17 @@ def list_all_orders(
 
 
 def update_delivery_status(db: Session, order_id: int, new_status: OrderStatus) -> Order:
-    """Usado por la dueña desde el panel admin para marcar
-    APPROVED -> IN_TRANSIT -> AWAITING_CONFIRMATION. Nunca permite saltos,
-    y nunca permite poner DELIVERED directo (eso lo confirma el cliente,
-    o se autoconfirma a los 5 días)."""
+    """Transiciones de logística que dispara la dueña desde el panel.
+
+    Nunca permite saltos: para llegar a DELIVERED hay que haber pasado
+    por AWAITING_CONFIRMATION, o sea haber declarado antes que se entregó
+    y se cobró.
+
+    Que la dueña pueda cerrar el pedido ella misma es a propósito, pero
+    tiene un costo que conviene tener presente: la confirmación de la
+    clienta deja de ser necesaria para cerrar. Sirve para que un pedido
+    no quede abierto para siempre porque alguien no volvió a la app; no
+    sirve como prueba de que la clienta estuvo de acuerdo."""
     order = get_order_or_raise(db, order_id)
     allowed = _DELIVERY_TRANSITIONS.get(order.status, set())
     if new_status not in allowed:
@@ -442,6 +423,11 @@ def update_delivery_status(db: Session, order_id: int, new_status: OrderStatus) 
             f"No se puede pasar de {order.status.value} a {new_status.value}."
         )
     order.status = new_status
+    if new_status == OrderStatus.DELIVERED:
+        # Lo cierra la tienda: la clienta nunca confirmó. Queda anotado
+        # para que después nadie tenga que adivinar si hubo acuerdo.
+        order.delivery_confirmed_at = datetime.now(timezone.utc)
+        order.closed_by = ClosedBy.SELLER
     if new_status == OrderStatus.AWAITING_CONFIRMATION:
         ahora = datetime.now(timezone.utc)
         order.delivered_at = ahora
@@ -465,6 +451,7 @@ def confirm_delivery(db: Session, order_id: int, user_id: int) -> Order:
         )
     order.status = OrderStatus.DELIVERED
     order.delivery_confirmed_at = datetime.now(timezone.utc)
+    order.closed_by = ClosedBy.CUSTOMER
     db.commit()
     db.refresh(order)
     return order
@@ -601,13 +588,13 @@ def process_wompi_transaction(
 
 def clear_non_approved_references(db: Session, product_id: int) -> None:
     """Borra las referencias a este producto en pedidos que NO son ventas
-    reales (todo lo que no esté en SALE_ORDER_STATUSES). Se usa antes de
+    reales (todo lo que no esté en COMMITTED_ORDER_STATUSES). Se usa antes de
     eliminar un producto: las ventas reales (pagadas, sin importar si ya
     se entregaron o siguen en camino) se dejan intactas a propósito, son
     historial y no se tocan nunca."""
     non_sale_order_ids = [
         row[0]
-        for row in db.query(Order.id).filter(Order.status.not_in(SALE_ORDER_STATUSES)).all()
+        for row in db.query(Order.id).filter(Order.status.not_in(COMMITTED_ORDER_STATUSES)).all()
     ]
     if not non_sale_order_ids:
         return

@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.models.order import OrderStatus, PaymentMethod
+from app.models.order import ClosedBy, OrderStatus, PaymentMethod
 from app.repositories import cart_repository, sales_repository
 from app.services import order_service
 
@@ -119,37 +119,60 @@ def test_la_clienta_confirma_que_recibio_y_pago(hacer_pedido, db, usuario):
     db.refresh(pedido)
     assert pedido.status == OrderStatus.DELIVERED
     assert pedido.delivery_confirmed_at is not None
+    # Hubo acuerdo de las dos partes, y queda constancia de eso.
+    assert pedido.closed_by == ClosedBy.CUSTOMER
 
 
-def test_a_los_5_dias_se_confirma_solo(hacer_pedido, db):
-    """El acuerdo de los 5 días: si la clienta nunca confirma, el pedido
-    no puede quedar abierto para siempre."""
+def test_la_duena_puede_cerrarlo_si_la_clienta_nunca_confirma(hacer_pedido, db):
+    """Antes esto lo hacía solo un barrido a los 5 días. Se quitó porque
+    corría de forma perezosa —solo si alguien listaba pedidos— y no era
+    base confiable para un acuerdo que se le muestra a la clienta. Ahora
+    lo cierra la dueña, que es quien sabe si de verdad entregó."""
     pedido, _ = hacer_pedido(PaymentMethod.CASH)
     order_service.update_delivery_status(db, pedido.id, OrderStatus.IN_TRANSIT)
     order_service.update_delivery_status(db, pedido.id, OrderStatus.AWAITING_CONFIRMATION)
 
-    dias = order_service.DELIVERY_AUTO_CONFIRM_DAYS
-    pedido.delivered_at = datetime.now(timezone.utc) - timedelta(days=dias, hours=1)
-    db.commit()
-
-    order_service.auto_confirm_stale_deliveries(db)
+    order_service.update_delivery_status(db, pedido.id, OrderStatus.DELIVERED)
 
     db.refresh(pedido)
     assert pedido.status == OrderStatus.DELIVERED
+    assert pedido.delivery_confirmed_at is not None
+    # Cierre unilateral: la clienta nunca dijo nada. Tiene que poder
+    # distinguirse de un pedido que ella sí confirmó.
+    assert pedido.closed_by == ClosedBy.SELLER
 
 
-def test_antes_de_los_5_dias_no_se_confirma_solo(hacer_pedido, db):
+def test_la_duena_no_puede_cerrar_un_pedido_que_no_ha_entregado(hacer_pedido, db):
+    """El único atajo que sigue prohibido: cerrar sin haber declarado
+    antes que se entregó y se cobró."""
     pedido, _ = hacer_pedido(PaymentMethod.CASH)
-    order_service.update_delivery_status(db, pedido.id, OrderStatus.IN_TRANSIT)
-    order_service.update_delivery_status(db, pedido.id, OrderStatus.AWAITING_CONFIRMATION)
 
-    pedido.delivered_at = datetime.now(timezone.utc) - timedelta(days=2)
-    db.commit()
+    with pytest.raises(order_service.InvalidStatusTransitionError):
+        order_service.update_delivery_status(db, pedido.id, OrderStatus.DELIVERED)
 
-    order_service.auto_confirm_stale_deliveries(db)
 
-    db.refresh(pedido)
-    assert pedido.status == OrderStatus.AWAITING_CONFIRMATION
+def test_los_dos_cierres_no_se_confunden_entre_si(hacer_pedido, db, usuario):
+    """El punto de closed_by: sin esta columna, un pedido con acuerdo y
+    uno cerrado por la tienda quedaban idénticos en la base."""
+    acordado, _ = hacer_pedido(PaymentMethod.CASH)
+    unilateral, _ = hacer_pedido(PaymentMethod.NEQUI)
+
+    for pedido in (acordado, unilateral):
+        # Mientras el pedido sigue abierto, nadie lo cerró todavía.
+        assert pedido.closed_by is None
+        order_service.update_delivery_status(db, pedido.id, OrderStatus.IN_TRANSIT)
+        order_service.update_delivery_status(
+            db, pedido.id, OrderStatus.AWAITING_CONFIRMATION
+        )
+        assert pedido.closed_by is None
+
+    order_service.confirm_delivery(db, acordado.id, usuario.id)
+    order_service.update_delivery_status(db, unilateral.id, OrderStatus.DELIVERED)
+
+    db.refresh(acordado)
+    db.refresh(unilateral)
+    assert acordado.status == unilateral.status == OrderStatus.DELIVERED
+    assert acordado.closed_by != unilateral.closed_by
 
 
 # --- La plata en los reportes --------------------------------------------

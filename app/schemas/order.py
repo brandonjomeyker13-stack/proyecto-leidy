@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
-from app.models.order import OrderStatus, PaymentMethod
+from app.models.order import ClosedBy, OrderStatus, PaymentMethod
 
 
 class OrderItemRead(BaseModel):
@@ -40,6 +40,11 @@ class OrderRead(BaseModel):
     paid_at: datetime | None = None
     delivered_at: datetime | None = None
     delivery_confirmed_at: datetime | None = None
+    # Quién cerró el pedido: CUSTOMER si lo confirmó la clienta, SELLER
+    # si lo cerró la tienda sin respuesta de ella. En null mientras siga
+    # abierto. El frontend lo usa para no mostrar como acuerdo mutuo algo
+    # que fue una declaración de una sola parte.
+    closed_by: ClosedBy | None = None
     items: list[OrderItemRead]
     # Se arma solo desde Order.user (la relación ya existe en el modelo,
     # no hace falta ningún join manual ni endpoint aparte).
