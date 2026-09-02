@@ -20,8 +20,31 @@ from sqlalchemy.orm import relationship
 from app.db.base import Base
 
 
+class PaymentMethod(str, enum.Enum):
+    """Cómo paga el cliente. Define TODO el flujo del pedido: con WOMPI
+    el pago va antes de la entrega; con los otros dos va en el momento
+    de la entrega, y por eso necesitan confirmación de las dos partes."""
+
+    WOMPI = "WOMPI"
+    CASH = "CASH"  # efectivo, en persona, al recibir
+    NEQUI = "NEQUI"  # transferencia por Nequi, al recibir
+
+
+# Métodos donde la plata se recibe al entregar, no antes.
+CONTRA_ENTREGA = {PaymentMethod.CASH, PaymentMethod.NEQUI}
+
+
 class OrderStatus(str, enum.Enum):
     PENDING = "PENDING"
+
+    # Contra entrega: el pedido quedó cerrado y el stock reservado, pero
+    # todavía no se ha pagado. Es un estado aparte de PENDING a propósito:
+    # PENDING se cancela solo a las 2 horas (ver PENDING_ORDER_TTL_HOURS,
+    # es un carrito abandonado en la pasarela), y un contra entrega vive
+    # días hasta que la dueña lo lleve. Si compartieran estado, el barrido
+    # de pedidos viejos le cancelaría la compra a la clienta.
+    CONFIRMED = "CONFIRMED"
+
     APPROVED = "APPROVED"
     DECLINED = "DECLINED"
     VOIDED = "VOIDED"
@@ -39,21 +62,31 @@ class OrderStatus(str, enum.Enum):
 # los services como los repositorios de reportes, y un repositorio no
 # puede importar de un service (la dependencia va en el otro sentido).
 
-# Estados en los que un pedido representa dinero YA cobrado de verdad
-# (Wompi aprobó el pago). Es la fuente única de verdad de "esto es una
-# venta real" — se reusa en los reportes de /sales y al borrar productos,
-# para no tener dos definiciones de lo mismo que se puedan desincronizar.
-SALE_ORDER_STATUSES = {
+# Estados en los que un pedido COMPROMETE producto: tiene stock
+# reservado y alguien lo está esperando. Se usa para no dejar borrar un
+# producto que está en pedidos vivos.
+#
+# OJO: esto NO es lo mismo que "ya cobré". Antes era un solo conjunto
+# porque con Wompi coincidían — se paga antes de entregar, así que un
+# pedido comprometido era un pedido pagado. Con contra entrega dejaron de
+# coincidir: un pedido puede estar en camino y sin pagar. Para la plata
+# está `Order.paid_at`, que es lo que miran los reportes de /sales.
+COMMITTED_ORDER_STATUSES = {
+    OrderStatus.CONFIRMED,
     OrderStatus.APPROVED,
     OrderStatus.IN_TRANSIT,
     OrderStatus.AWAITING_CONFIRMATION,
     OrderStatus.DELIVERED,
 }
 
+# Nombre viejo, mantenido para no romper imports existentes.
+SALE_ORDER_STATUSES = COMMITTED_ORDER_STATUSES
+
 # Agrupación para separar "en curso" de "finalizados" en el historial del
 # cliente (GET /orders/?stage=active|completed).
 ACTIVE_ORDER_STATUSES = {
     OrderStatus.PENDING,
+    OrderStatus.CONFIRMED,
     OrderStatus.APPROVED,
     OrderStatus.IN_TRANSIT,
     OrderStatus.AWAITING_CONFIRMATION,
@@ -80,6 +113,20 @@ class Order(Base):
     reference = Column(String(100), unique=True, nullable=False, index=True)
 
     status = Column(Enum(OrderStatus), nullable=False, default=OrderStatus.PENDING)
+
+    payment_method = Column(
+        Enum(PaymentMethod), nullable=False, default=PaymentMethod.WOMPI
+    )
+
+    # Cuándo entró la plata DE VERDAD. Con Wompi, cuando aprueba el pago;
+    # con contra entrega, cuando la dueña confirma que le pagaron al
+    # entregar.
+    #
+    # Los reportes de /sales filtran por esta columna y no por el estado.
+    # Si contaran por estado, un pedido contra entrega en camino —que
+    # todavía no cobró nadie— aparecería como ingreso, y la dueña estaría
+    # viendo plata que no tiene.
+    paid_at = Column(DateTime(timezone=True), nullable=True)
 
     # Guardado en pesos (no en centavos) para que sea consistente con
     # Product.price. La conversión a centavos para Wompi se hace al vuelo.

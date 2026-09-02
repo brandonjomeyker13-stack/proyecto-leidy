@@ -10,6 +10,7 @@ Dos cosas distintas que se prueban acá:
    comparar monto, moneda y transacción contra el pedido.
 """
 
+from datetime import datetime, timezone
 from decimal import Decimal
 
 import pytest
@@ -56,6 +57,9 @@ def test_la_ganancia_del_reporte_se_calcula_en_decimal(db, usuario, crear_produc
     cart_repository.create(db, user_id=usuario.id, product_id=producto.id, quantity=7)
     pedido = order_service.create_order_from_cart(db, user_id=usuario.id)
     pedido.status = OrderStatus.APPROVED
+    # Lo que hace que un pedido cuente como venta es paid_at, no el
+    # estado: un contra entrega puede ir en camino y todavía sin cobrar.
+    pedido.paid_at = datetime.now(timezone.utc)
     db.commit()
 
     resumen = sales_repository.get_total_sales(db)

@@ -12,10 +12,12 @@ from app.core.config import settings
 from app.models.order import (
     ACTIVE_ORDER_STATUSES,
     COMPLETED_ORDER_STATUSES,
+    CONTRA_ENTREGA,
     SALE_ORDER_STATUSES,
     Order,
     OrderItem,
     OrderStatus,
+    PaymentMethod,
 )
 from app.repositories import cart_repository, product_repository
 
@@ -31,7 +33,10 @@ _WOMPI_TERMINAL_STATUSES = {"APPROVED", "DECLINED", "VOIDED", "ERROR"}
 # llega por confirm_delivery() (el cliente) o auto_confirm_stale_deliveries()
 # (a los 5 días sin respuesta), nunca porque el admin lo ponga directo.
 _DELIVERY_TRANSITIONS: dict[OrderStatus, set[OrderStatus]] = {
+    # Wompi: se pagó antes, así que la logística arranca desde APPROVED.
     OrderStatus.APPROVED: {OrderStatus.IN_TRANSIT},
+    # Contra entrega: no hay pago previo, arranca desde CONFIRMED.
+    OrderStatus.CONFIRMED: {OrderStatus.IN_TRANSIT},
     OrderStatus.IN_TRANSIT: {OrderStatus.AWAITING_CONFIRMATION},
 }
 
@@ -152,7 +157,9 @@ def _cart_matches_order(order: Order, cart_items: list) -> bool:
     return order_map == cart_map
 
 
-def create_order_from_cart(db: Session, *, user_id: int) -> Order:
+def create_order_from_cart(
+    db: Session, *, user_id: int, payment_method: PaymentMethod = PaymentMethod.WOMPI
+) -> Order:
     """Congela el carrito actual del usuario en un pedido nuevo, en estado
     PENDING, y RESERVA el stock ahí mismo (bloqueando cada fila de
     producto con SELECT ... FOR UPDATE). Así, si dos personas quieren lo
@@ -170,13 +177,28 @@ def create_order_from_cart(db: Session, *, user_id: int) -> Order:
     """
     expire_stale_orders(db)
 
+    # Con Wompi el pedido nace PENDING y espera el pago. Contra entrega
+    # nace CONFIRMED: no hay nada que esperar, la plata llega al entregar.
+    estado_inicial = (
+        OrderStatus.PENDING
+        if payment_method == PaymentMethod.WOMPI
+        else OrderStatus.CONFIRMED
+    )
+
     cart_items = cart_repository.list_by_user(db, user_id)
     if not cart_items:
         raise EmptyCartError("El carrito está vacío.")
 
+    # La idempotencia mira el estado inicial que corresponda al método:
+    # un doble clic en "pagar con Nequi" tiene que reusar el CONFIRMED que
+    # acaba de crear, no armar un pedido nuevo y reservar el stock dos veces.
     existing_pending = (
         db.query(Order)
-        .filter(Order.user_id == user_id, Order.status == OrderStatus.PENDING)
+        .filter(
+            Order.user_id == user_id,
+            Order.status == estado_inicial,
+            Order.payment_method == payment_method,
+        )
         .order_by(Order.created_at.desc())
         .first()
     )
@@ -222,7 +244,8 @@ def create_order_from_cart(db: Session, *, user_id: int) -> Order:
     order = Order(
         user_id=user_id,
         reference="",  # se completa abajo, una vez que ya existe el id
-        status=OrderStatus.PENDING,
+        status=estado_inicial,
+        payment_method=payment_method,
         total_amount=total,
         items=order_items,
     )
@@ -237,20 +260,35 @@ def create_order_from_cart(db: Session, *, user_id: int) -> Order:
 
 
 def build_checkout_payload(order: Order) -> dict:
-    if not settings.WOMPI_PUBLIC_KEY:
-        raise WompiNotConfiguredError("Falta configurar WOMPI_PUBLIC_KEY.")
+    """Lo que el frontend necesita para cerrar el pedido.
 
+    Con Wompi, los datos del widget. Contra entrega no tiene widget: se
+    devuelve el mismo sobre pero sin `public_key` ni `signature`, y el
+    frontend muestra las instrucciones de pago en vez de abrir la
+    pasarela. Un solo endpoint y una sola forma de respuesta, para que el
+    frontend no tenga que adivinar cuál va a recibir.
+    """
     amount_in_cents = to_cents(order.total_amount)
     currency = settings.WOMPI_CURRENCY
-    signature = _sign(order.reference, amount_in_cents, currency)
 
-    return {
+    base = {
         "order_id": order.id,
-        "public_key": settings.WOMPI_PUBLIC_KEY,
+        "payment_method": order.payment_method,
         "currency": currency,
         "amount_in_cents": amount_in_cents,
         "reference": order.reference,
-        "signature": signature,
+    }
+
+    if order.payment_method in CONTRA_ENTREGA:
+        return {**base, "public_key": None, "signature": None}
+
+    if not settings.WOMPI_PUBLIC_KEY:
+        raise WompiNotConfiguredError("Falta configurar WOMPI_PUBLIC_KEY.")
+
+    return {
+        **base,
+        "public_key": settings.WOMPI_PUBLIC_KEY,
+        "signature": _sign(order.reference, amount_in_cents, currency),
     }
 
 
@@ -273,6 +311,10 @@ def _get_order_for_update(db: Session, order_id: int, *, user_id: int | None = N
     return order
 
 
+# Estados desde los que el cliente todavía puede cancelar solo.
+_CANCELABLE_STATUSES = {OrderStatus.PENDING, OrderStatus.CONFIRMED}
+
+
 def cancel_order(db: Session, order_id: int, user_id: int) -> Order:
     """El CLIENTE cancela su propio pedido, mientras siga PENDING (antes
     de pagar) — libera el stock que se había reservado al crearlo.
@@ -285,10 +327,14 @@ def cancel_order(db: Session, order_id: int, user_id: int) -> Order:
     """
     order = _get_order_for_update(db, order_id, user_id=user_id)
 
-    if order.status != OrderStatus.PENDING:
+    # CONFIRMED entra acá: un contra entrega que todavía no salió a
+    # repartir se puede cancelar igual que uno sin pagar, y libera el
+    # stock igual. Desde IN_TRANSIT ya no: la dueña ya salió con el
+    # producto en la mano.
+    if order.status not in _CANCELABLE_STATUSES:
         raise InvalidStatusTransitionError(
-            "Este pedido ya no se puede cancelar (ya fue pagado, rechazado, "
-            "expiró, o ya estaba cancelado)."
+            "Este pedido ya no se puede cancelar (ya va en camino, ya fue "
+            "pagado, rechazado, expiró, o ya estaba cancelado)."
         )
 
     for item in order.items:
@@ -322,6 +368,15 @@ def get_checkout_payload_for_order(db: Session, order_id: int, user_id: int) -> 
       no se puede "revivir" — hay que armar un pedido nuevo desde el carrito.
     """
     order = _get_order_for_update(db, order_id, user_id=user_id)
+
+    # Un pedido contra entrega no se paga por la pasarela: no tiene nada
+    # que cobrar en línea. Sin esta guarda se le armaría un checkout de
+    # Wompi y el cliente terminaría pagando dos veces — una en la app y
+    # otra en la mano de quien se lo entrega.
+    if order.payment_method != PaymentMethod.WOMPI:
+        raise InvalidStatusTransitionError(
+            "Este pedido se paga al recibirlo, no por la pasarela."
+        )
 
     if order.status not in _RETRYABLE_STATUSES:
         raise InvalidStatusTransitionError(
@@ -388,7 +443,13 @@ def update_delivery_status(db: Session, order_id: int, new_status: OrderStatus) 
         )
     order.status = new_status
     if new_status == OrderStatus.AWAITING_CONFIRMATION:
-        order.delivered_at = datetime.now(timezone.utc)
+        ahora = datetime.now(timezone.utc)
+        order.delivered_at = ahora
+        # En contra entrega, este es el momento en que la dueña dice
+        # "entregué Y me pagaron": recién acá la plata existe. Con Wompi
+        # ya se había marcado al aprobarse el pago, y no se pisa.
+        if order.payment_method in CONTRA_ENTREGA and order.paid_at is None:
+            order.paid_at = ahora
     db.commit()
     db.refresh(order)
     return order
@@ -512,6 +573,8 @@ def process_wompi_transaction(
         # sentido seguir apareciendo ahí como "por comprar".
         product_ids = [item.product_id for item in order.items]
         cart_repository.delete_for_user_and_products(db, order.user_id, product_ids)
+        # Con Wompi la plata entra al aprobarse, antes de entregar nada.
+        order.paid_at = datetime.now(timezone.utc)
     else:
         # DECLINED / VOIDED / ERROR: el pago no se completó, así que se
         # libera la reserva de stock que se había hecho al crear el pedido.
@@ -524,6 +587,10 @@ def process_wompi_transaction(
                 )
                 continue
             product_repository.apply_stock_delta(db, product, item.quantity)
+        # El pago no se completó: si había quedado marcado como cobrado
+        # por un intento anterior, se limpia para que no quede en los
+        # reportes como ingreso.
+        order.paid_at = None
 
     order.status = new_status
     order.wompi_transaction_id = wompi_transaction_id

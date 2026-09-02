@@ -1,6 +1,13 @@
 """Acceso a datos para reportes de ventas. Solo SELECT/agregaciones, sin
-reglas de negocio. La regla de qué cuenta como "venta" está en
-models.order.SALE_ORDER_STATUSES — se importa de ahí para no duplicarla."""
+reglas de negocio.
+
+Qué cuenta como venta: los pedidos con `paid_at` puesto, o sea aquellos
+donde la plata YA entró. Antes se filtraba por estado, y con Wompi daba
+igual porque se paga antes de entregar. Con contra entrega no: un pedido
+puede estar en camino y todavía sin cobrar, y contarlo como ingreso le
+mostraría a la dueña plata que no tiene en la mano. `Order.paid_at` lo
+pone Wompi al aprobar el pago, o la dueña al confirmar que le pagaron
+en la entrega."""
 
 from datetime import datetime
 from decimal import Decimal
@@ -8,7 +15,7 @@ from decimal import Decimal
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
-from app.models.order import SALE_ORDER_STATUSES, Order, OrderItem
+from app.models.order import Order, OrderItem
 
 
 def _base_query(db: Session):
@@ -23,7 +30,7 @@ def _base_query(db: Session):
             func.count(func.distinct(Order.id)).label("orders_count"),
         )
         .join(Order, OrderItem.order_id == Order.id)
-        .filter(Order.status.in_(SALE_ORDER_STATUSES))
+        .filter(Order.paid_at.is_not(None))
     )
 
 
@@ -68,7 +75,7 @@ def get_sales_by_period(
         )
         .join(Order, OrderItem.order_id == Order.id)
         .filter(
-            Order.status.in_(SALE_ORDER_STATUSES),
+            Order.paid_at.is_not(None),
             Order.created_at >= date_from,
             Order.created_at < date_to,
         )

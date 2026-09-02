@@ -6,7 +6,12 @@ from app.core.limiter import limiter
 from app.db.session import get_db
 from app.models.order import OrderStatus
 from app.models.user import User
-from app.schemas.order import CheckoutResponse, OrderRead, OrderStatusUpdate
+from app.schemas.order import (
+    CheckoutRequest,
+    CheckoutResponse,
+    OrderRead,
+    OrderStatusUpdate,
+)
 from app.services import order_service
 
 router = APIRouter()
@@ -16,13 +21,18 @@ router = APIRouter()
 @limiter.limit("3/minute")
 def checkout(
     request: Request,
+    payload: CheckoutRequest = CheckoutRequest(),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Congela el carrito en un pedido y devuelve lo que el frontend
-    necesita para abrir el Widget de Wompi."""
+    """Congela el carrito en un pedido.
+
+    Con Wompi devuelve los datos del widget; contra entrega (efectivo o
+    Nequi) devuelve el pedido ya confirmado, sin pasarela."""
     try:
-        order = order_service.create_order_from_cart(db, user_id=current_user.id)
+        order = order_service.create_order_from_cart(
+            db, user_id=current_user.id, payment_method=payload.payment_method
+        )
         return order_service.build_checkout_payload(order)
     except order_service.EmptyCartError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
