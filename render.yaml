@@ -23,6 +23,19 @@ services:
     # de "la API esta corriendo" (app/main_app.py).
     healthCheckPath: /
 
+    # Esperar a que GitHub Actions termine en verde antes de desplegar.
+    #
+    # Con el valor por defecto (desplegar en cada commit), Render arranca
+    # el build en paralelo con el CI: una migracion rota se descubre en
+    # los logs de produccion en vez de en el CI, que SI la habria cazado
+    # (ese job corre `alembic upgrade head` contra un Postgres real).
+    # Ya pasó dos veces.
+    #
+    # OJO: el servicio se creo a mano, no desde este blueprint, asi que
+    # esta linea sola no lo cambia. Hay que ponerlo tambien en el panel:
+    # Settings -> Build & Deploy -> Auto-Deploy -> After CI Checks Pass.
+    autoDeployTrigger: checksPass
+
     buildCommand: "pip install -r requirements.txt"
 
     # Las migraciones corren antes de levantar la API, en el startCommand

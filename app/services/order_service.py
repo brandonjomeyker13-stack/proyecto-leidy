@@ -586,6 +586,49 @@ def process_wompi_transaction(
     return order
 
 
+# Cómo se le explica cada estado a la dueña, que no sabe ni quiere saber
+# los nombres internos.
+_ESTADO_EN_CRISTIANO = {
+    OrderStatus.CONFIRMED: "confirmado, sin entregar",
+    OrderStatus.APPROVED: "pagado",
+    OrderStatus.IN_TRANSIT: "en camino",
+    OrderStatus.AWAITING_CONFIRMATION: "entregado, esperando confirmación",
+    OrderStatus.DELIVERED: "entregado",
+}
+
+
+def orders_blocking_product(db: Session, product_id: int) -> list[Order]:
+    """Los pedidos vivos que incluyen este producto y por eso impiden
+    borrarlo.
+
+    Existe para poder DECIR cuáles son. Antes se intentaba borrar y, si la
+    base se quejaba, se asumía que eran ventas — pero desde que hay contra
+    entrega un pedido apenas CONFIRMED (que no cobró nada y no expira
+    nunca) también bloquea, y el mensaje culpaba a ventas inexistentes.
+    """
+    return (
+        db.query(Order)
+        .join(OrderItem, OrderItem.order_id == Order.id)
+        .filter(
+            OrderItem.product_id == product_id,
+            Order.status.in_(COMMITTED_ORDER_STATUSES),
+        )
+        .order_by(Order.id)
+        .all()
+    )
+
+
+def describe_blocking_orders(db: Session, product_id: int) -> str:
+    """Los pedidos que bloquean, en palabras. Cadena vacía si no hay."""
+    pedidos = orders_blocking_product(db, product_id)
+    if not pedidos:
+        return ""
+    return ", ".join(
+        f"#{pedido.id} ({_ESTADO_EN_CRISTIANO.get(pedido.status, pedido.status.value)})"
+        for pedido in pedidos
+    )
+
+
 def clear_non_approved_references(db: Session, product_id: int) -> None:
     """Borra las referencias a este producto en pedidos que NO son ventas
     reales (todo lo que no esté en COMMITTED_ORDER_STATUSES). Se usa antes de

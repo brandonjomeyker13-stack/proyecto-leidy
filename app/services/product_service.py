@@ -151,13 +151,26 @@ def delete_product(db: Session, product_id: int) -> None:
     order_service.expire_stale_orders(db)
     order_service.clear_non_approved_references(db, product_id)
 
+    # Se pregunta ANTES de intentar, para poder decir cuáles son los
+    # pedidos. El except de abajo queda como red de seguridad por si algo
+    # más referencia al producto.
+    bloqueantes = order_service.describe_blocking_orders(db, product_id)
+    if bloqueantes:
+        raise ProductHasOrdersError(
+            f"'{product.name}' está en estos pedidos y por eso no se puede "
+            f"eliminar: {bloqueantes}. Los pedidos entregados son historial y "
+            "no se tocan; los que siguen abiertos se pueden cancelar primero. "
+            "Si solo quieres dejar de venderlo, márcalo como agotado "
+            "(in_stock = false) en vez de borrarlo."
+        )
+
     try:
         product_repository.delete(db, product)
     except IntegrityError as exc:
         db.rollback()
-        raise ProductHasOrdersError (
-            f"'{product.name}' tiene ventas confirmadas y no se puede eliminar. "
-            "Marcalo como agotado/inactivo (in_stock=false) en su lugar."
+        raise ProductHasOrdersError(
+            f"'{product.name}' está referenciado en otro lado y no se puede "
+            "eliminar. Márcalo como agotado (in_stock = false) en su lugar."
         ) from exc
 
 
