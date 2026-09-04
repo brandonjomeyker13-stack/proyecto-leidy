@@ -9,11 +9,15 @@ porque así se puede consultar "qué bolsos hay en negro" con un JOIN
 normal, y porque la llave foránea impide que quede un color escrito de
 una forma que el catálogo no conoce.
 
-OJO CON EL STOCK: las unidades siguen siendo del producto, no del color
-(`Product.stock`). O sea que "quedan 3" no dice cuántos de cada color.
-Para una tienda donde la dueña coordina cada entrega por WhatsApp antes
-de salir, alcanza. Si algún día hace falta stock por color, esta tabla es
-el lugar donde iría la columna.
+EL STOCK VIVE ACÁ. Cada color tiene sus propias unidades, porque el
+azul y el negro se agotan por separado. `Product.stock` se conserva como
+la SUMA de los colores —para el catálogo, `in_stock` y los reportes— y lo
+recalcula solo `product_color_repository`: no es un segundo lugar donde
+editarlo.
+
+Lo que sí se hereda del producto: nombre, precio, costo, categoría,
+medidas y material. Un color no es un producto aparte, es la misma bolsa
+en otro tono.
 """
 
 from sqlalchemy import Column, Enum, ForeignKey, Integer, UniqueConstraint
@@ -36,6 +40,10 @@ class ProductColor(Base):
         index=True,
     )
     color = Column(Enum(Color), nullable=False)
+
+    # Unidades disponibles DE ESTE COLOR. El total del producto es la suma
+    # de estas, y lo mantiene product_color_repository.
+    stock = Column(Integer, nullable=False, default=0, server_default="0")
 
     product = relationship("Product", back_populates="colors")
 

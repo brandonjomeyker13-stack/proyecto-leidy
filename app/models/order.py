@@ -18,6 +18,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base
+from app.models.color import Color
 
 
 class PaymentMethod(str, enum.Enum):
@@ -184,6 +185,11 @@ class OrderItem(Base):
     # Foto del producto en el momento de la compra. Si el producto se
     # borra o cambia después, el pedido conserva estos datos igual.
     product_name = Column(String(150), nullable=False)
+
+    # El color que pidió, congelado igual que el nombre y el precio. Sin
+    # esto la dueña recibe "Bolso Totto" y no sabe cuál llevar — la
+    # clienta ya lo eligió en la app y tendría que volver a preguntárselo.
+    color = Column(Enum(Color), nullable=True)
     unit_price = Column(Numeric(10, 2), nullable=False)
     unit_cost = Column(Numeric(10, 2), nullable=True)
     quantity = Column(Integer, nullable=False)

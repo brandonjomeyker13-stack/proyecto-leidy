@@ -61,6 +61,10 @@ class CategoryNotFoundError(Exception):
     pass
 
 
+class ColorNotAvailableError(Exception):
+    pass
+
+
 def create_product(
     db: Session,
     *,
@@ -271,6 +275,91 @@ def replace_product_images(
         product_image_repository.delete(db, image)
 
     return add_product_images(db, product_id, images, color), anteriores
+
+
+def stock_disponible(db: Session, product: Product, color: Color | None) -> int:
+    """Cuántas unidades hay de esta combinación de producto y color.
+
+    Un producto con colores guarda el stock en cada color; uno sin
+    colores, en el producto. `products.stock` de un producto con colores
+    es la suma, y sirve para el catálogo, pero NO para decidir si se puede
+    vender un color puntual: puede haber 5 en total y 0 del azul.
+    """
+    if color is None:
+        return product.stock
+    fila = product_color_repository.get(db, product.id, color)
+    return fila.stock if fila is not None else 0
+
+
+def tomar_stock(
+    db: Session, product_id: int, color: Color | None, quantity: int
+) -> Product:
+    """Descuenta stock bloqueando la fila que lo guarda. SIN commit.
+
+    Bloquear importa: sin el lock, dos clientas que compran lo último al
+    mismo tiempo leen "queda 1" las dos y se vende una unidad que no
+    existe. Se bloquea la fila del COLOR cuando hay color, porque es ahí
+    donde vive el número que se está por mover.
+
+    Lanza InsufficientStockError si no alcanza — quien llama decide si
+    eso aborta todo el pedido.
+    """
+    product = product_repository.get_by_id_for_update(db, product_id)
+    if product is None:
+        raise ProductNotFoundError(f"Producto {product_id} no encontrado.")
+
+    if color is None:
+        if product.stock < quantity:
+            raise InsufficientStockError(
+                f"Stock insuficiente para '{product.name}'. Disponible: {product.stock}."
+            )
+        product_repository.apply_stock_delta(db, product, -quantity)
+        return product
+
+    fila = product_color_repository.get_for_update(db, product_id, color)
+    if fila is None or fila.stock < quantity:
+        disponible = fila.stock if fila is not None else 0
+        raise InsufficientStockError(
+            f"Solo quedan {disponible} de '{product.name}' en "
+            f"{color.value.lower().replace('_', ' ')}."
+        )
+    product_color_repository.apply_stock_delta(db, fila, -quantity)
+    return product
+
+
+def devolver_stock(
+    db: Session, product_id: int, color: Color | None, quantity: int
+) -> None:
+    """Devuelve stock al cancelar, expirar o rechazar un pago. SIN commit.
+
+    No falla si el producto o el color ya no existen: se está soltando una
+    reserva, y si el destino desapareció no hay nada que devolver — pero
+    tampoco hay motivo para tumbar la cancelación del pedido.
+    """
+    product = product_repository.get_by_id_for_update(db, product_id)
+    if product is None:
+        return
+
+    if color is None:
+        product_repository.apply_stock_delta(db, product, quantity)
+        return
+
+    fila = product_color_repository.get_for_update(db, product_id, color)
+    if fila is not None:
+        product_color_repository.apply_stock_delta(db, fila, quantity)
+
+
+def set_color_stock(
+    db: Session, product_id: int, color: Color, stock: int
+) -> Product:
+    """Fija desde el panel cuántas unidades hay de un color."""
+    product = get_product_or_raise(db, product_id)
+    try:
+        product_color_repository.set_stock(db, product_id, color, stock)
+    except ValueError as exc:
+        raise ColorNotAvailableError(str(exc)) from exc
+    db.refresh(product)
+    return product
 
 
 def reserve_stock(db: Session, product_id: int, quantity: int) -> Product:

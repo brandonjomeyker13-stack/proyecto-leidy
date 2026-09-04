@@ -22,6 +22,10 @@ from app.services import product_service
 PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 32
 MAX = product_service.MAX_PRODUCT_IMAGES
 
+# Los productos de este archivo se manejan por colores: el stock vive en
+# cada uno y el total del producto es la suma.
+CON_COLORES = {Color.GRIS: 6, Color.NEGRO: 4}
+
 
 @pytest.fixture(autouse=True)
 def supabase_falso(monkeypatch):
@@ -71,7 +75,7 @@ def test_el_catalogo_trae_nombre_y_hex(client):
 def test_el_catalogo_no_choca_con_la_ruta_de_un_producto(client, crear_producto):
     """/colors se declara antes que /{product_id}. Si fuera al revés,
     FastAPI leería "colors" como id y devolvería 422."""
-    producto = crear_producto()
+    producto = crear_producto(colores=CON_COLORES)
 
     assert client.get("/api/v1/products/colors").status_code == 200
     assert client.get(f"/api/v1/products/{producto.id}").status_code == 200
@@ -117,7 +121,7 @@ def test_un_producto_puede_no_tener_colores(admin_client, categoria):
 def test_marcar_colores_reemplaza_la_lista_completa(admin_client, crear_producto):
     """El formulario del panel manda el estado final de los círculos
     marcados, no altas y bajas por separado."""
-    producto = crear_producto()  # nace con GRIS y NEGRO
+    producto = crear_producto(colores=CON_COLORES)  # GRIS y NEGRO
 
     respuesta = admin_client.put(
         f"/api/v1/products/{producto.id}/colors", json={"colors": ["AZUL"]}
@@ -128,7 +132,7 @@ def test_marcar_colores_reemplaza_la_lista_completa(admin_client, crear_producto
 
 
 def test_se_puede_dejar_un_producto_sin_colores(admin_client, crear_producto):
-    producto = crear_producto()
+    producto = crear_producto(colores=CON_COLORES)
 
     respuesta = admin_client.put(
         f"/api/v1/products/{producto.id}/colors", json={"colors": []}
@@ -139,7 +143,7 @@ def test_se_puede_dejar_un_producto_sin_colores(admin_client, crear_producto):
 
 
 def test_un_color_repetido_no_duplica_el_circulo(admin_client, crear_producto):
-    producto = crear_producto()
+    producto = crear_producto(colores=CON_COLORES)
 
     respuesta = admin_client.put(
         f"/api/v1/products/{producto.id}/colors",
@@ -160,7 +164,7 @@ def test_los_colores_que_ya_estaban_no_cambian_de_lugar(admin_client, crear_prod
     orden en que el admin los mandó. Para un selector de círculos importa
     más que no se muevan solos que poder ordenarlos a mano.
     """
-    producto = crear_producto()  # nace con GRIS y NEGRO, en ese orden
+    producto = crear_producto(colores=CON_COLORES)  # GRIS y NEGRO, en ese orden
 
     # Se quita el GRIS y se agrega AZUL: el NEGRO no se tocó.
     primero = admin_client.put(
@@ -176,7 +180,7 @@ def test_los_colores_que_ya_estaban_no_cambian_de_lugar(admin_client, crear_prod
 
 
 def test_un_color_que_no_existe_se_rechaza(admin_client, crear_producto):
-    producto = crear_producto()
+    producto = crear_producto(colores=CON_COLORES)
 
     respuesta = admin_client.put(
         f"/api/v1/products/{producto.id}/colors", json={"colors": ["FUCSIA_NEON"]}
@@ -186,7 +190,7 @@ def test_un_color_que_no_existe_se_rechaza(admin_client, crear_producto):
 
 
 def test_marcar_colores_exige_admin(client, crear_producto):
-    producto = crear_producto()
+    producto = crear_producto(colores=CON_COLORES)
 
     respuesta = client.put(
         f"/api/v1/products/{producto.id}/colors", json={"colors": ["AZUL"]}
@@ -199,7 +203,7 @@ def test_marcar_colores_exige_admin(client, crear_producto):
 
 
 def test_una_foto_queda_ligada_a_su_color(admin_client, crear_producto):
-    producto = crear_producto()
+    producto = crear_producto(colores=CON_COLORES)
 
     respuesta = subir(admin_client, producto.id, color=Color.NEGRO)
 
@@ -209,7 +213,7 @@ def test_una_foto_queda_ligada_a_su_color(admin_client, crear_producto):
 
 def test_una_foto_sin_color_es_general(admin_client, crear_producto):
     """El detalle del cierre o de la etiqueta vale para cualquier color."""
-    producto = crear_producto()
+    producto = crear_producto(colores=CON_COLORES)
 
     respuesta = subir(admin_client, producto.id)
 
@@ -219,7 +223,7 @@ def test_una_foto_sin_color_es_general(admin_client, crear_producto):
 def test_cada_color_tiene_su_propia_numeracion(admin_client, crear_producto):
     """Sin el color en la llave única, la primera foto del negro chocaría
     contra la primera del gris."""
-    producto = crear_producto()
+    producto = crear_producto(colores=CON_COLORES)
 
     subir(admin_client, producto.id, cantidad=2, color=Color.NEGRO)
     respuesta = subir(admin_client, producto.id, cantidad=2, color=Color.GRIS)
@@ -234,7 +238,7 @@ def test_cada_color_tiene_su_propia_numeracion(admin_client, crear_producto):
 def test_el_tope_es_por_color_y_no_por_producto(admin_client, crear_producto):
     """Un bolso en cuatro colores necesita fotos de cada uno: un tope
     global le dejaría dos o tres por color."""
-    producto = crear_producto()
+    producto = crear_producto(colores=CON_COLORES)
 
     assert subir(admin_client, producto.id, cantidad=MAX, color=Color.NEGRO).status_code == 200
     assert subir(admin_client, producto.id, cantidad=MAX, color=Color.GRIS).status_code == 200
@@ -243,7 +247,7 @@ def test_el_tope_es_por_color_y_no_por_producto(admin_client, crear_producto):
 
 
 def test_pasarse_del_tope_en_un_color_se_rechaza(admin_client, crear_producto):
-    producto = crear_producto()
+    producto = crear_producto(colores=CON_COLORES)
     subir(admin_client, producto.id, cantidad=MAX, color=Color.NEGRO)
 
     respuesta = subir(admin_client, producto.id, color=Color.NEGRO)
@@ -253,7 +257,7 @@ def test_pasarse_del_tope_en_un_color_se_rechaza(admin_client, crear_producto):
 
 
 def test_llenar_un_color_no_bloquea_a_los_demas(admin_client, crear_producto):
-    producto = crear_producto()
+    producto = crear_producto(colores=CON_COLORES)
     subir(admin_client, producto.id, cantidad=MAX, color=Color.NEGRO)
 
     assert subir(admin_client, producto.id, color=Color.GRIS).status_code == 200
@@ -262,7 +266,7 @@ def test_llenar_un_color_no_bloquea_a_los_demas(admin_client, crear_producto):
 def test_borrar_una_foto_solo_renumera_su_color(admin_client, crear_producto):
     """Correr las fotos del gris porque se borró una del negro sería
     reordenar la galería de alguien sin ningún motivo."""
-    producto = crear_producto()
+    producto = crear_producto(colores=CON_COLORES)
     negras = subir(admin_client, producto.id, cantidad=3, color=Color.NEGRO).json()
     grises = subir(admin_client, producto.id, cantidad=3, color=Color.GRIS).json()
     id_negra_del_medio = [i for i in negras["images"] if i["color"] == "NEGRO"][1]["id"]
@@ -284,7 +288,7 @@ def test_borrar_una_foto_solo_renumera_su_color(admin_client, crear_producto):
 def test_quitar_un_color_no_borra_sus_fotos(admin_client, crear_producto):
     """Si la dueña deja de ofrecer el negro un tiempo y después vuelve, no
     tiene que volver a fotografiarlo."""
-    producto = crear_producto()
+    producto = crear_producto(colores=CON_COLORES)
     subir(admin_client, producto.id, cantidad=2, color=Color.NEGRO)
 
     admin_client.put(f"/api/v1/products/{producto.id}/colors", json={"colors": ["GRIS"]})
@@ -300,7 +304,7 @@ def test_quitar_un_color_no_borra_sus_fotos(admin_client, crear_producto):
 def test_la_portada_prefiere_una_foto_general(admin_client, crear_producto):
     """En el listado todavía no se eligió color, así que la que vale es
     una que sirva para cualquiera."""
-    producto = crear_producto()
+    producto = crear_producto(colores=CON_COLORES)
     subir(admin_client, producto.id, color=Color.NEGRO)
     respuesta = subir(admin_client, producto.id)
 
@@ -310,7 +314,7 @@ def test_la_portada_prefiere_una_foto_general(admin_client, crear_producto):
 
 def test_sin_generales_la_portada_es_la_primera_de_color(admin_client, crear_producto):
     """Mejor mostrar una foto de color que dejar el hueco vacío."""
-    producto = crear_producto()
+    producto = crear_producto(colores=CON_COLORES)
 
     respuesta = subir(admin_client, producto.id, cantidad=2, color=Color.NEGRO)
 
@@ -318,6 +322,6 @@ def test_sin_generales_la_portada_es_la_primera_de_color(admin_client, crear_pro
 
 
 def test_un_producto_sin_fotos_no_tiene_portada(client, crear_producto):
-    producto = crear_producto()
+    producto = crear_producto(colores=CON_COLORES)
 
     assert client.get(f"/api/v1/products/{producto.id}").json()["image_url"] is None

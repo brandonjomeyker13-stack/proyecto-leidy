@@ -2,6 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
+from app.models.color import Color
 from app.models.order import ClosedBy, OrderStatus, PaymentMethod
 
 
@@ -9,6 +10,8 @@ class OrderItemRead(BaseModel):
     id: int
     product_id: int
     product_name: str
+    # Qué color pidió. Es lo que la dueña necesita para saber cuál llevar.
+    color: Color | None = None
     unit_price: float
     quantity: int
 

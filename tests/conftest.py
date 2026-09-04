@@ -160,18 +160,31 @@ def crear_producto(db, categoria):
         stock: int = 10,
         precio: str = "50000.00",
         costo: str = "30000.00",
+        colores: dict[Color, int] | None = None,
     ) -> Product:
+        """Por defecto SIN colores: ahí el stock vive en el producto.
+
+        Pasando `colores={Color.GRIS: 3, Color.NEGRO: 2}` el producto pasa
+        a manejarse por colores, y `stock` se ignora — el total es la suma
+        de los colores, que es la regla real del sistema. Mezclar las dos
+        cosas (colores marcados y stock suelto en el producto) es
+        justamente el estado inconsistente que no debe existir.
+        """
+        total = sum(colores.values()) if colores else stock
         product = Product(
             name=nombre,
-            colors=[ProductColor(color=Color.GRIS), ProductColor(color=Color.NEGRO)],
+            colors=[
+                ProductColor(color=color, stock=cantidad)
+                for color, cantidad in (colores or {}).items()
+            ],
             height_cm=43,
             width_cm=33,
             compartments=3,
             material="Lona satinada",
             price=Decimal(precio),
             cost=Decimal(costo),
-            stock=stock,
-            in_stock=stock > 0,
+            stock=total,
+            in_stock=total > 0,
             category_id=categoria.id,
         )
         db.add(product)

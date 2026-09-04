@@ -1,9 +1,14 @@
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.models.color import Color
+
 
 class CartItemBase(BaseModel):
     product_id: int
     quantity: int = Field(..., gt=0)
+    # Obligatorio si el producto viene en colores; null si no. El mismo
+    # producto en dos colores son dos líneas del carrito.
+    color: Color | None = None
 
 
 class CartItemCreate(CartItemBase):

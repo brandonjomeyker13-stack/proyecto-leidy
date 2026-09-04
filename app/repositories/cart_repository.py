@@ -3,18 +3,33 @@
 from sqlalchemy.orm import Session
 
 from app.models.cart import CartItem
+from app.models.color import Color
 
 
 def get_by_id(db: Session, cart_item_id: int) -> CartItem | None:
     return db.query(CartItem).filter(CartItem.id == cart_item_id).first()
 
 
-def get_by_user_and_product(
-    db: Session, user_id: int, product_id: int
+def get_by_user_product_and_color(
+    db: Session, user_id: int, product_id: int, color: Color | None
 ) -> CartItem | None:
+    """La línea del carrito de ese producto EN ESE COLOR.
+
+    El color va en la búsqueda porque el mismo bolso en azul y en negro
+    son dos líneas: se agotan por separado y se entregan por separado.
+    Buscando solo por producto, agregar el negro habría sumado cantidad a
+    la línea del azul.
+    """
+    condicion = (
+        CartItem.color.is_(None) if color is None else CartItem.color == color
+    )
     return (
         db.query(CartItem)
-        .filter(CartItem.user_id == user_id, CartItem.product_id == product_id)
+        .filter(
+            CartItem.user_id == user_id,
+            CartItem.product_id == product_id,
+            condicion,
+        )
         .first()
     )
 
@@ -23,8 +38,17 @@ def list_by_user(db: Session, user_id: int) -> list[CartItem]:
     return db.query(CartItem).filter(CartItem.user_id == user_id).all()
 
 
-def create(db: Session, *, user_id: int, product_id: int, quantity: int) -> CartItem:
-    item = CartItem(user_id=user_id, product_id=product_id, quantity=quantity)
+def create(
+    db: Session,
+    *,
+    user_id: int,
+    product_id: int,
+    quantity: int,
+    color: Color | None = None,
+) -> CartItem:
+    item = CartItem(
+        user_id=user_id, product_id=product_id, quantity=quantity, color=color
+    )
     db.add(item)
     db.commit()
     db.refresh(item)

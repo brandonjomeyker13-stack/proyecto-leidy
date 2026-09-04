@@ -21,6 +21,7 @@ from app.models.order import (
     PaymentMethod,
 )
 from app.repositories import cart_repository, product_repository
+from app.services import product_service
 
 logger = logging.getLogger("tienda.orders")
 
@@ -93,9 +94,9 @@ def expire_stale_orders(db: Session) -> int:
     )
     for order in stale_orders:
         for item in order.items:
-            product = product_repository.get_by_id_for_update(db, item.product_id)
-            if product is not None:
-                product_repository.apply_stock_delta(db, product, item.quantity)
+            product_service.devolver_stock(
+                db, item.product_id, item.color, item.quantity
+            )
         order.status = OrderStatus.EXPIRED
     if stale_orders:
         db.commit()
@@ -128,8 +129,14 @@ def _sign(reference: str, amount_in_cents: int, currency: str) -> str:
 
 
 def _cart_matches_order(order: Order, cart_items: list) -> bool:
-    order_map = {item.product_id: item.quantity for item in order.items}
-    cart_map = {item.product_id: item.quantity for item in cart_items}
+    """Si el carrito es idéntico al pedido, se reusa en vez de crear otro.
+
+    El color entra en la clave: el mismo bolso en azul y en negro son dos
+    líneas distintas. Sin él, cambiar de color en el carrito y volver a
+    pagar reusaría el pedido viejo — que reservó el color anterior.
+    """
+    order_map = {(item.product_id, item.color): item.quantity for item in order.items}
+    cart_map = {(item.product_id, item.color): item.quantity for item in cart_items}
     return order_map == cart_map
 
 
@@ -183,24 +190,37 @@ def create_order_from_cart(
 
     # Primera pasada: bloquear y VALIDAR todo antes de tocar nada. Si
     # algo no alcanza, no queda ninguna reserva a medias.
-    locked_products = []
+    #
+    # La disponibilidad se mira POR COLOR: un producto puede tener 5 en
+    # total y 0 del azul, y quien pidió azul no se puede llevar un negro.
+    locked = []
     for item in cart_items:
         product = product_repository.get_by_id_for_update(db, item.product_id)
-        if product is None or item.quantity > product.stock:
-            name = product.name if product else f"#{item.product_id}"
+        if product is None:
             raise InsufficientStockError(
-                f"No hay stock suficiente de '{name}' para completar el pedido."
+                f"El producto #{item.product_id} ya no está disponible."
             )
-        locked_products.append((product, item.quantity))
+        disponible = product_service.stock_disponible(db, product, item.color)
+        if item.quantity > disponible:
+            de_que = f" en {item.color.value.lower()}" if item.color else ""
+            raise InsufficientStockError(
+                f"No hay stock suficiente de '{product.name}'{de_que} para "
+                "completar el pedido."
+            )
+        locked.append((product, item.color, item.quantity))
 
     # Segunda pasada: ya validado todo, recién ahora se reserva de verdad.
     order_items = []
     total = Decimal("0")
-    for product, quantity in locked_products:
+    for product, color, quantity in locked:
         order_items.append(
             OrderItem(
                 product_id=product.id,
                 product_name=product.name,
+                # El color se congela igual que el nombre y el precio: si
+                # mañana dejan de ofrecerlo, el pedido viejo sigue
+                # diciendo cuál se pidió.
+                color=color,
                 unit_price=product.price,
                 # Foto del COSTO en el momento de la venta, igual que ya
                 # se hace con unit_price. Si el costo del producto cambia
@@ -215,7 +235,7 @@ def create_order_from_cart(
         # en float es lo que garantiza que el total cuadre al centavo con
         # lo que se le cobra al cliente en Wompi.
         total += product.price * quantity
-        product_repository.apply_stock_delta(db, product, -quantity)
+        product_service.tomar_stock(db, product.id, color, quantity)
 
     order = Order(
         user_id=user_id,
@@ -314,9 +334,7 @@ def cancel_order(db: Session, order_id: int, user_id: int) -> Order:
         )
 
     for item in order.items:
-        product = product_repository.get_by_id_for_update(db, item.product_id)
-        if product is not None:
-            product_repository.apply_stock_delta(db, product, item.quantity)
+        product_service.devolver_stock(db, item.product_id, item.color, item.quantity)
 
     order.status = OrderStatus.CANCELLED
     db.commit()
@@ -364,14 +382,19 @@ def get_checkout_payload_for_order(db: Session, order_id: int, user_id: int) -> 
         locked_products = []
         for item in order.items:
             product = product_repository.get_by_id_for_update(db, item.product_id)
-            if product is None or item.quantity > product.stock:
+            disponible = (
+                product_service.stock_disponible(db, product, item.color)
+                if product is not None
+                else 0
+            )
+            if product is None or item.quantity > disponible:
                 name = product.name if product else f"#{item.product_id}"
                 raise InsufficientStockError(
                     f"Ya no hay stock suficiente de '{name}' para reintentar este pedido."
                 )
             locked_products.append((product, item.quantity))
         for product, quantity in locked_products:
-            product_repository.apply_stock_delta(db, product, -quantity)
+            product_service.tomar_stock(db, product.id, item.color, quantity)
         order.status = OrderStatus.PENDING
 
     order.reference = _generate_reference(order.id)
@@ -566,14 +589,9 @@ def process_wompi_transaction(
         # DECLINED / VOIDED / ERROR: el pago no se completó, así que se
         # libera la reserva de stock que se había hecho al crear el pedido.
         for item in order.items:
-            product = product_repository.get_by_id_for_update(db, item.product_id)
-            if product is None:
-                logger.error(
-                    "Pedido %s: producto %s ya no existe al liberar su reserva.",
-                    order.id, item.product_id,
-                )
-                continue
-            product_repository.apply_stock_delta(db, product, item.quantity)
+            product_service.devolver_stock(
+                db, item.product_id, item.color, item.quantity
+            )
         # El pago no se completó: si había quedado marcado como cobrado
         # por un intento anterior, se limpia para que no quede en los
         # reportes como ingreso.

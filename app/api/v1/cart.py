@@ -29,9 +29,16 @@ def add_to_cart(
             user_id=current_user.id,
             product_id=payload.product_id,
             quantity=payload.quantity,
+            color=payload.color,
         )
     except product_service.ProductNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except cart_service.ColorRequiredError as exc:
+        # 400 y no 409: al cliente le falta mandar un dato, no es un
+        # conflicto con el estado de la tienda.
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except cart_service.ColorNotAvailableError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except cart_service.InsufficientStockError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 

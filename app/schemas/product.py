@@ -6,6 +6,12 @@ from app.models.color import Color
 from app.schemas.category import CategoryRead
 
 
+class ColorStockUpdate(BaseModel):
+    """Body de PUT /products/{id}/colors/{color}/stock."""
+
+    stock: int = Field(..., ge=0)
+
+
 class ProductColorRead(BaseModel):
     """Un color disponible, listo para que el frontend pinte el círculo.
 
@@ -16,6 +22,8 @@ class ProductColorRead(BaseModel):
     value: Color
     label: str
     hex: str
+    # Unidades de ESE color. El `stock` del producto es la suma de todos.
+    stock: int
 
     model_config = ConfigDict(from_attributes=True)
 

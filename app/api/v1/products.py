@@ -9,6 +9,7 @@ from app.models.color import Color, listar_catalogo
 from app.models.product_image import ProductImage
 from app.models.user import User
 from app.schemas.product import (
+    ColorStockUpdate,
     ProductAdminRead,
     ProductColorsUpdate,
     ProductCreate,
@@ -147,6 +148,28 @@ def set_product_colors(
         return product_service.set_product_colors(db, product_id, payload.colors)
     except product_service.ProductNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.put("/{product_id}/colors/{color}/stock", response_model=ProductAdminRead)
+def set_color_stock(
+    product_id: int,
+    color: Color,
+    payload: ColorStockUpdate,
+    db: Session = Depends(get_db),
+    is_admin: User = Depends(get_current_admin_user),
+):
+    """Cuántas unidades hay de un color.
+
+    El stock vive en cada color, no en el producto: el azul y el negro se
+    agotan por separado. `products.stock` queda como la suma y lo
+    recalcula el backend — no hace falta (ni se debe) mandarlo aparte.
+    """
+    try:
+        return product_service.set_color_stock(db, product_id, color, payload.stock)
+    except product_service.ProductNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except product_service.ColorNotAvailableError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
