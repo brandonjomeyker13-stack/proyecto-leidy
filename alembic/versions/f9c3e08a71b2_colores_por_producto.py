@@ -44,6 +44,23 @@ _VALORES = (
     "AMARILLO", "NARANJA", "ESTAMPADO",
 )
 
+# El tipo enum se crea UNA sola vez, a mano (ver upgrade). Para las
+# columnas se usa una referencia con create_type=False: sin eso,
+# `op.create_table` emite su propio CREATE TYPE al crear la tabla —
+# esta vez sin checkfirst— y la migración choca consigo misma con
+# "type color already exists".
+#
+# Las migraciones anteriores (paymentmethod, closedby) no tuvieron el
+# problema porque usaban add_column, que no dispara ese evento.
+def _tipo_color(bind):
+    if bind.dialect.name == "postgresql":
+        from sqlalchemy.dialects import postgresql
+
+        return postgresql.ENUM(*_VALORES, name="color", create_type=False)
+    # En SQLite el enum es un VARCHAR con un CHECK: no hay tipo que crear.
+    return sa.Enum(*_VALORES, name="color")
+
+
 _COLOR = sa.Enum(*_VALORES, name="color")
 
 # Cómo se escribe en la vida real -> qué valor del catálogo es. Se compara
@@ -96,12 +113,13 @@ def _normalizar(texto: str) -> str:
 def upgrade() -> None:
     bind = op.get_bind()
     _COLOR.create(bind, checkfirst=True)
+    tipo_color = _tipo_color(bind)
 
     op.create_table(
         "product_colors",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("product_id", sa.Integer(), nullable=False),
-        sa.Column("color", _COLOR, nullable=False),
+        sa.Column("color", tipo_color, nullable=False),
         sa.ForeignKeyConstraint(["product_id"], ["products.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint(
@@ -131,7 +149,7 @@ def upgrade() -> None:
 
     op.drop_column("products", "color")
 
-    op.add_column("product_images", sa.Column("color", _COLOR, nullable=True))
+    op.add_column("product_images", sa.Column("color", tipo_color, nullable=True))
     op.create_index(
         op.f("ix_product_images_color"), "product_images", ["color"]
     )
