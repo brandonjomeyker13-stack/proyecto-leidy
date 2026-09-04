@@ -2,20 +2,37 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.models.color import Color
 from app.schemas.category import CategoryRead
+
+
+class ProductColorRead(BaseModel):
+    """Un color disponible, listo para que el frontend pinte el círculo.
+
+    Trae el nombre y el hex resueltos para que el frontend no tenga que
+    cruzarlos contra el catálogo por su cuenta ni copiarlos a mano.
+    """
+
+    value: Color
+    label: str
+    hex: str
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ProductImageRead(BaseModel):
     id: int
     image_url: str
     position: int
+    # De qué color es esta foto. En null si es general: esas se muestran
+    # sin importar qué círculo toque la clienta.
+    color: Color | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class ProductBase(BaseModel):
     name: str = Field(..., min_length=2, max_length=150)
-    color: str = Field(..., min_length=2, max_length=50)
     height_cm: Decimal | None = Field(default=None, gt=0, decimal_places=1)
     width_cm: Decimal | None = Field(default=None, gt=0, decimal_places=1)
     compartments: int | None = Field(default=None, ge=0)
@@ -34,12 +51,15 @@ class ProductCreate(ProductBase):
     # Costo de compra/fabricación, para calcular ganancia en /sales.
     cost: Decimal | None = Field(default=None, ge=0, decimal_places=2)
 
+    # En qué colores viene. Vacío es válido: se pueden marcar después,
+    # desde PUT /products/{id}/colors.
+    colors: list[Color] = Field(default_factory=list)
+
 
 class ProductUpdate(BaseModel):
     """Todos los campos opcionales: solo se actualiza lo que se envíe."""
 
     name: str | None = Field(default=None, min_length=2, max_length=150)
-    color: str | None = Field(default=None, min_length=2, max_length=50)
     height_cm: Decimal | None = Field(default=None, gt=0, decimal_places=1)
     width_cm: Decimal | None = Field(default=None, gt=0, decimal_places=1)
     compartments: int | None = Field(default=None, ge=0)
@@ -48,6 +68,15 @@ class ProductUpdate(BaseModel):
     stock: int | None = Field(default=None, ge=0)
     category_id: int | None = Field(default=None)
     cost: Decimal | None = Field(default=None, ge=0, decimal_places=2)
+    # None = no tocar los colores. Lista vacía = dejarlo sin colores.
+    colors: list[Color] | None = Field(default=None)
+
+
+class ProductColorsUpdate(BaseModel):
+    """Body de PUT /products/{id}/colors: la lista COMPLETA de colores
+    disponibles. Vacía es válida — deja el producto sin colores."""
+
+    colors: list[Color] = Field(default_factory=list)
 
 
 class ProductRead(ProductBase):
@@ -57,6 +86,9 @@ class ProductRead(ProductBase):
 
     id: int
     category: CategoryRead
+
+    # Los colores disponibles, cada uno con su nombre y su hex.
+    colors: list[ProductColorRead] = []
 
     # De 0 a 4, en el orden en que se muestran. La primera es la
     # principal.

@@ -1,17 +1,27 @@
-"""Imágenes de un producto: hasta 4, todas opcionales.
+"""Imágenes de un producto: varias, todas opcionales.
 
-Van en su propia tabla y no en 4 columnas (`image_url_1`, `image_url_2`,
-...) porque con columnas fijas hay que tocar la base cada vez que cambie
+Van en su propia tabla y no en columnas fijas (`image_url_1`,
+`image_url_2`, ...) porque así hay que tocar la base cada vez que cambie
 el máximo, y borrar la segunda de tres imágenes obliga a ir corriendo las
 demás a mano. Acá una fila es una imagen: no hay huecos que rellenar y el
-tope de 4 es una regla de negocio (product_service.MAX_PRODUCT_IMAGES),
-no una restricción del esquema.
+tope es una regla de negocio (product_service.MAX_PRODUCT_IMAGES), no una
+restricción del esquema — subirlo de 4 a 8 no necesitó migración.
 """
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy import (
+    Column,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base
+from app.models.color import Color
 
 
 class ProductImage(Base):
@@ -37,8 +47,18 @@ class ProductImage(Base):
     # siempre.
     storage_path = Column(String(500), nullable=True)
 
-    # Orden en que se muestran en la galería. La 0 es la principal (la
-    # que sale en el listado del catálogo).
+    # De qué color es esta foto. En NULL cuando la foto sirve para
+    # cualquier color (el detalle del cierre, la etiqueta, una toma del
+    # interior): esas se muestran siempre, sin importar qué círculo toque
+    # la clienta.
+    #
+    # No hay llave foránea a product_colors a propósito: si la dueña deja
+    # de ofrecer el negro, las fotos del negro no se borran solas — las
+    # quita ella cuando quiera. Una FK con cascada le habría borrado
+    # trabajo sin avisar.
+    color = Column(Enum(Color), nullable=True, index=True)
+
+    # Orden dentro de la galería de SU color. La 0 es la principal.
     position = Column(Integer, nullable=False, default=0)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -46,7 +66,14 @@ class ProductImage(Base):
     product = relationship("Product", back_populates="images")
 
     __table_args__ = (
-        # Dos imágenes del mismo producto no pueden pelear por el mismo
-        # lugar en la galería.
-        UniqueConstraint("product_id", "position", name="uq_product_images_product_position"),
+        # Dos imágenes no pueden pelear por el mismo lugar DENTRO de su
+        # color. El color entra en la llave porque cada color tiene su
+        # propia galería numerada desde 0: sin él, la primera foto del
+        # negro chocaría con la primera del gris.
+        UniqueConstraint(
+            "product_id",
+            "color",
+            "position",
+            name="uq_product_images_product_color_position",
+        ),
     )

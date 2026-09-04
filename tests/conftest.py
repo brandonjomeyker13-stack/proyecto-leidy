@@ -31,8 +31,10 @@ from app.db.base import Base
 from app.db.session import get_db
 from app.main_app import app
 from app.models.category import Category
+from app.models.color import Color
 from app.models.order import Order
 from app.models.product import Product
+from app.models.product_color import ProductColor
 from app.models.user import User
 from app.repositories import cart_repository
 from app.services import order_service
@@ -161,7 +163,7 @@ def crear_producto(db, categoria):
     ) -> Product:
         product = Product(
             name=nombre,
-            color="gris",
+            colors=[ProductColor(color=Color.GRIS), ProductColor(color=Color.NEGRO)],
             height_cm=43,
             width_cm=33,
             compartments=3,

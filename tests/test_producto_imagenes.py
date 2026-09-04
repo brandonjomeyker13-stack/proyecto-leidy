@@ -1,5 +1,10 @@
-"""Galería de imágenes del producto: hasta 4, todas opcionales, y solo el
-admin puede tocarlas."""
+"""Galería de imágenes del producto: todas opcionales, y solo el admin
+puede tocarlas.
+
+El tope se lee de product_service.MAX_PRODUCT_IMAGES en vez de escribirlo
+a mano: así estos tests siguen valiendo si el número cambia, que ya pasó
+una vez (de 4 a 8).
+"""
 
 import io
 
@@ -8,6 +13,8 @@ import pytest
 from app.api.v1 import products as products_api
 from app.core.storage import UploadedImage
 from app.services import product_service
+
+MAX = product_service.MAX_PRODUCT_IMAGES
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 32
 
@@ -66,36 +73,38 @@ def test_se_pueden_subir_varias_imagenes_de_una(admin_client, crear_producto):
     assert respuesta.json()["image_url"] == imagenes[0]["image_url"]
 
 
-def test_las_imagenes_se_van_acumulando_hasta_4(admin_client, crear_producto):
+def test_las_imagenes_se_van_acumulando_hasta_el_tope(admin_client, crear_producto):
     producto = crear_producto()
 
-    subir(admin_client, producto.id, cantidad=2)
-    respuesta = subir(admin_client, producto.id, cantidad=2)
+    subir(admin_client, producto.id, cantidad=MAX - 1)
+    respuesta = subir(admin_client, producto.id, cantidad=1)
 
     assert respuesta.status_code == 200
-    assert len(respuesta.json()["images"]) == product_service.MAX_PRODUCT_IMAGES
+    assert len(respuesta.json()["images"]) == MAX
 
 
-def test_la_quinta_imagen_se_rechaza_y_no_queda_basura_en_el_bucket(
+def test_la_imagen_de_mas_se_rechaza_y_no_queda_basura_en_el_bucket(
     admin_client, crear_producto, supabase_falso
 ):
     producto = crear_producto()
-    subir(admin_client, producto.id, cantidad=4)
+    subir(admin_client, producto.id, cantidad=MAX)
 
     respuesta = subir(admin_client, producto.id)
 
     assert respuesta.status_code == 409
-    assert "4" in respuesta.json()["detail"]
+    assert str(MAX) in respuesta.json()["detail"]
     # La imagen ya estaba subida cuando se supo que no cabía: se borra
     # para no dejar un archivo que nadie referencia.
-    assert supabase_falso == ["product-1-4.png"]
-    assert len(admin_client.get(f"/api/v1/products/{producto.id}").json()["images"]) == 4
+    assert supabase_falso == [f"product-1-{MAX}.png"]
+    assert (
+        len(admin_client.get(f"/api/v1/products/{producto.id}").json()["images"]) == MAX
+    )
 
 
-def test_mandar_mas_de_4_en_un_solo_request_se_rechaza(admin_client, crear_producto):
+def test_mandar_mas_del_tope_en_un_solo_request_se_rechaza(admin_client, crear_producto):
     producto = crear_producto()
 
-    respuesta = subir(admin_client, producto.id, cantidad=5)
+    respuesta = subir(admin_client, producto.id, cantidad=MAX + 1)
 
     assert respuesta.status_code == 400
     assert admin_client.get(f"/api/v1/products/{producto.id}").json()["images"] == []
@@ -120,17 +129,21 @@ def test_borrar_una_imagen_corre_las_demas_y_libera_el_archivo(
     assert supabase_falso == ["product-1-0.png"]
 
 
-def test_despues_de_borrar_se_puede_volver_a_llenar_hasta_4(admin_client, crear_producto):
+def test_despues_de_borrar_se_puede_volver_a_llenar_hasta_el_tope(
+    admin_client, crear_producto
+):
     """Renumerar no es cosmético: si quedaran huecos en las posiciones, la
     siguiente subida chocaría contra la constraint (product_id, position)."""
     producto = crear_producto()
-    imagenes = subir(admin_client, producto.id, cantidad=4).json()["images"]
+    imagenes = subir(admin_client, producto.id, cantidad=MAX).json()["images"]
     admin_client.delete(f"/api/v1/products/{producto.id}/images/{imagenes[1]['id']}")
 
     respuesta = subir(admin_client, producto.id)
 
     assert respuesta.status_code == 200
-    assert [imagen["position"] for imagen in respuesta.json()["images"]] == [0, 1, 2, 3]
+    posiciones = [imagen["position"] for imagen in respuesta.json()["images"]]
+    # Correlativas desde 0 y sin huecos: la galería vuelve a estar llena.
+    assert posiciones == list(range(MAX))
 
 
 def test_no_se_puede_borrar_una_imagen_de_otro_producto(admin_client, crear_producto):

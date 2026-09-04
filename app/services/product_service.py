@@ -5,10 +5,12 @@ from decimal import Decimal
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.models.color import Color
 from app.models.product import Product
 from app.models.product_image import ProductImage
 from app.repositories import (
     category_repository,
+    product_color_repository,
     product_image_repository,
     product_repository,
 )
@@ -17,7 +19,22 @@ from app.repositories import (
 # puede quedarse en 0 y se sigue mostrando (el frontend pone su
 # placeholder). El límite existe para que la galería no crezca sin
 # control y la ficha siga cargando rápido en celular.
-MAX_PRODUCT_IMAGES = 4
+#
+# El tope es POR COLOR, no por producto: un bolso que viene en cuatro
+# colores necesita fotos de cada uno, y un tope global de 10 le dejaría
+# dos fotos por color. Las generales (color en NULL) cuentan como su
+# propio grupo.
+#
+# 10 cubre todos los ángulos útiles de un bolso (frente, atrás, lateral,
+# interior, cierre, detalle del material, con la cartuchera, en uso para
+# dar escala) con margen de sobra. El costo real de subirlo no es el
+# almacenamiento sino los datos móviles de la clienta — pero como solo se
+# cargan las fotos del color que ella toque, ese costo no crece con la
+# cantidad de colores.
+#
+# Cambiar este número es lo único que hace falta: el resto del código y
+# los tests lo leen de acá.
+MAX_PRODUCT_IMAGES = 10
 
 
 class ProductNotFoundError(Exception):
@@ -48,7 +65,6 @@ def create_product(
     db: Session,
     *,
     name: str,
-    color: str,
     price: Decimal,
     stock: int,
     category_id: int,
@@ -65,7 +81,6 @@ def create_product(
     return product_repository.create(
         db,
         name=name,
-        color=color,
         height_cm=height_cm,
         width_cm=width_cm,
         compartments=compartments,
@@ -97,7 +112,6 @@ def update_product(
     product_id: int,
     *,
     name: str | None = None,
-    color: str | None = None,
     price: Decimal | None = None,
     height_cm: Decimal | None = None,
     width_cm: Decimal | None = None,
@@ -114,7 +128,6 @@ def update_product(
         db,
         product,
         name=name,
-        color=color,
         height_cm=height_cm,
         width_cm=width_cm,
         compartments=compartments,
@@ -149,25 +162,33 @@ def delete_product(db: Session, product_id: int) -> None:
 
 
 def add_product_images(
-    db: Session, product_id: int, images: list[tuple[str, str | None]]
+    db: Session,
+    product_id: int,
+    images: list[tuple[str, str | None]],
+    color: Color | None = None,
 ) -> Product:
-    """Agrega imágenes al final de la galería. `images` es una lista de
-    (url, ruta en el bucket).
+    """Agrega imágenes al final de la galería de un color. `images` es
+    una lista de (url, ruta en el bucket).
+
+    Con `color=None` van al grupo de fotos generales, las que se muestran
+    con cualquier variante (el detalle del cierre, la etiqueta). El tope
+    se cuenta por grupo, no sobre el total: ver MAX_PRODUCT_IMAGES.
 
     Se bloquea la fila del producto (`FOR UPDATE`) mientras se cuenta y se
     inserta: sin eso, dos subidas simultáneas leen "hay 3" al mismo
-    tiempo y el producto termina con 5 imágenes.
+    tiempo y el color termina con más fotos de las que caben.
     """
     product = product_repository.get_by_id_for_update(db, product_id)
     if product is None:
         raise ProductNotFoundError(f"Producto {product_id} no encontrado.")
 
-    actuales = product_image_repository.list_by_product(db, product_id)
+    actuales = product_image_repository.list_by_color(db, product_id, color)
     disponibles = MAX_PRODUCT_IMAGES - len(actuales)
     if len(images) > disponibles:
+        de_que = f"en {color.value.lower()}" if color else "generales"
         raise TooManyProductImagesError(
             f"'{product.name}' ya tiene {len(actuales)} de {MAX_PRODUCT_IMAGES} "
-            f"imágenes: solo caben {disponibles} más."
+            f"imágenes {de_que}: solo caben {disponibles} más."
         )
 
     siguiente = len(actuales)
@@ -178,8 +199,24 @@ def add_product_images(
             image_url=image_url,
             storage_path=storage_path,
             position=siguiente + offset,
+            color=color,
         )
 
+    db.refresh(product)
+    return product
+
+
+def set_product_colors(db: Session, product_id: int, colors: list[Color]) -> Product:
+    """Deja el producto con exactamente estos colores disponibles.
+
+    Quitar un color NO borra sus fotos: si la dueña deja de ofrecer el
+    negro por un tiempo y después vuelve, no tiene que volver a
+    fotografiarlo. Las fotos de un color que ya no está disponible
+    simplemente no se muestran — el frontend solo pinta círculos de los
+    colores que sí están.
+    """
+    product = get_product_or_raise(db, product_id)
+    product_color_repository.set_colors(db, product_id, colors)
     db.refresh(product)
     return product
 
@@ -193,28 +230,34 @@ def delete_product_image(db: Session, product_id: int, image_id: int) -> Product
             f"El producto {product_id} no tiene una imagen {image_id}."
         )
 
+    color = image.color
     product_image_repository.delete(db, image)
     # Las que quedan se corren para tapar el hueco: la siguiente pasa a
     # ser la principal y la próxima subida encuentra su lugar libre.
-    product_image_repository.renumber(db, product_id)
+    # Solo dentro de SU color — las galerías de los demás no se tocan.
+    product_image_repository.renumber(db, product_id, color)
     return image
 
 
 def replace_product_images(
-    db: Session, product_id: int, images: list[tuple[str, str | None]]
+    db: Session,
+    product_id: int,
+    images: list[tuple[str, str | None]],
+    color: Color | None = None,
 ) -> tuple[Product, list[ProductImage]]:
-    """Deja la galería con exactamente estas imágenes. Devuelve también
-    las que se quitaron, para poder borrar sus archivos del bucket."""
+    """Deja la galería de UN color con exactamente estas imágenes.
+    Devuelve también las que se quitaron, para borrar sus archivos del
+    bucket. Las galerías de los otros colores no se tocan."""
     if len(images) > MAX_PRODUCT_IMAGES:
         raise TooManyProductImagesError(
-            f"Un producto no puede tener más de {MAX_PRODUCT_IMAGES} imágenes."
+            f"Un color no puede tener más de {MAX_PRODUCT_IMAGES} imágenes."
         )
 
-    anteriores = product_image_repository.list_by_product(db, product_id)
+    anteriores = product_image_repository.list_by_color(db, product_id, color)
     for image in anteriores:
         product_image_repository.delete(db, image)
 
-    return add_product_images(db, product_id, images), anteriores
+    return add_product_images(db, product_id, images, color), anteriores
 
 
 def reserve_stock(db: Session, product_id: int, quantity: int) -> Product:

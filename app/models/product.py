@@ -9,7 +9,19 @@ class Product(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(150), nullable=False, index=True)
-    color = Column(String(50), nullable=False)
+    # En qué colores viene (app/models/product_color.py). El mismo bolso
+    # en gris y en negro es UN producto con dos colores, no dos productos:
+    # comparte precio, medidas y material.
+    #
+    # Antes esto era una columna `color` de texto libre, con dos
+    # problemas: un producto solo podía tener un color, y el mismo tono
+    # se escribía distinto cada vez ("gris", "Gris", "gris oscuro").
+    colors = relationship(
+        "ProductColor",
+        back_populates="product",
+        cascade="all, delete-orphan",
+        order_by="ProductColor.id",
+    )
     # Medidas en centímetros. Numeric y no Integer porque un bolso
     # puede medir 43.5 cm, y redondear a 43 en la ficha de un producto
     # que se compra por internet (sin poder tocarlo) es información que
@@ -35,14 +47,18 @@ class Product(Base):
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=False, index=True)
     category = relationship("Category", back_populates="products")
 
-    # Hasta 4 imágenes, todas opcionales (ver app/models/product_image.py).
+    # Galería de imágenes, todas opcionales (ver app/models/product_image.py).
+    # El tope lo pone product_service.MAX_PRODUCT_IMAGES.
     # order_by en la relación para que siempre lleguen en el orden de la
     # galería y no en el que devuelva la base.
     images = relationship(
         "ProductImage",
         back_populates="product",
         cascade="all, delete-orphan",
-        order_by="ProductImage.position",
+        # Por color y después por posición: cada color tiene su propia
+        # galería numerada desde 0, así que ordenar solo por posición
+        # dejaría las fotos de los colores intercaladas.
+        order_by="(ProductImage.color, ProductImage.position)",
     )
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -55,11 +71,21 @@ class Product(Base):
 
     @property
     def image_url(self) -> str | None:
-        """La imagen principal, o None si el producto no tiene ninguna.
+        """La foto de portada, o None si el producto no tiene ninguna.
+
+        Es la que sale en el listado del catálogo, donde todavía no se ha
+        elegido color. Se prefiere una foto general (sin color) porque esas
+        son las que valen para cualquier variante; si no hay ninguna, se
+        cae a la primera foto de color que haya, que es mejor que dejar el
+        hueco vacío.
 
         Antes esto era una columna. Se dejó como propiedad para que el
         frontend que ya consume `image_url` siga funcionando igual, sin
         tener que guardar dos veces la misma URL (columna + galería) y
         arriesgarse a que queden desincronizadas.
         """
-        return self.images[0].image_url if self.images else None
+        if not self.images:
+            return None
+        generales = [imagen for imagen in self.images if imagen.color is None]
+        candidatas = generales or list(self.images)
+        return min(candidatas, key=lambda imagen: imagen.position).image_url

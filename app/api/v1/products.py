@@ -5,9 +5,16 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_admin_user
 from app.core.storage import delete_product_image_file, upload_product_image
 from app.db.session import get_db
+from app.models.color import Color, listar_catalogo
 from app.models.product_image import ProductImage
 from app.models.user import User
-from app.schemas.product import ProductAdminRead, ProductCreate, ProductRead, ProductUpdate
+from app.schemas.product import (
+    ProductAdminRead,
+    ProductColorsUpdate,
+    ProductCreate,
+    ProductRead,
+    ProductUpdate,
+)
 from app.services import product_service
 
 router = APIRouter()
@@ -23,6 +30,20 @@ def list_products(
     return product_service.list_products(
         db, skip=skip, limit=limit, category_id=category_id
     )
+
+
+@router.get("/colors")
+def list_colors():
+    """El catálogo de colores de la tienda, con nombre y hex.
+
+    Se declara ANTES de /{product_id} a propósito: si fuera después,
+    FastAPI intentaría leer "colors" como un id de producto y devolvería
+    un 422 en vez de este listado.
+
+    El frontend lo consume para pintar los círculos, en vez de copiar la
+    paleta a mano y arriesgarse a que se separen.
+    """
+    return listar_catalogo()
 
 
 @router.get("/{product_id}", response_model=ProductRead)
@@ -54,10 +75,9 @@ def create_product(
     is_admin: User = Depends(get_current_admin_user),
 ):
     try:
-        return product_service.create_product(
+        producto = product_service.create_product(
             db,
             name=payload.name,
-            color=payload.color,
             height_cm=payload.height_cm,
             width_cm=payload.width_cm,
             compartments=payload.compartments,
@@ -67,6 +87,9 @@ def create_product(
             category_id=payload.category_id,
             cost=payload.cost,
         )
+        if payload.colors:
+            producto = product_service.set_product_colors(db, producto.id, payload.colors)
+        return producto
     except product_service.CategoryNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -79,11 +102,10 @@ def update_product(
     is_admin: User = Depends(get_current_admin_user),
 ):
     try:
-        return product_service.update_product(
+        producto = product_service.update_product(
             db,
             product_id,
             name=payload.name,
-            color=payload.color,
             height_cm=payload.height_cm,
             width_cm=payload.width_cm,
             compartments=payload.compartments,
@@ -93,10 +115,38 @@ def update_product(
             category_id=payload.category_id,
             cost=payload.cost,
         )
+        # Los colores viven en su propia tabla, así que se actualizan
+        # aparte. `None` significa "no los toques"; una lista vacía sí es
+        # una orden: dejar el producto sin colores.
+        if payload.colors is not None:
+            producto = product_service.set_product_colors(db, product_id, payload.colors)
+        return producto
     except product_service.ProductNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except product_service.CategoryNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.put("/{product_id}/colors", response_model=ProductAdminRead)
+def set_product_colors(
+    product_id: int,
+    payload: ProductColorsUpdate,
+    db: Session = Depends(get_db),
+    is_admin: User = Depends(get_current_admin_user),
+):
+    """Deja el producto con exactamente estos colores disponibles.
+
+    Reemplaza la lista completa, no agrega: lo que no venga en el body se
+    quita. Es lo que espera un formulario de círculos donde el admin
+    marca y desmarca — mandar el estado final es más simple y menos
+    propenso a errores que mandar altas y bajas por separado.
+
+    Quitar un color NO borra sus fotos.
+    """
+    try:
+        return product_service.set_product_colors(db, product_id, payload.colors)
+    except product_service.ProductNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -123,10 +173,18 @@ def _borrar_del_bucket(imagenes: list[ProductImage]) -> None:
 async def upload_images(
     product_id: int,
     files: list[UploadFile],
+    color: Color | None = None,
     db: Session = Depends(get_db),
     is_admin: User = Depends(get_current_admin_user),
 ):
-    """Agrega imágenes a la galería del producto, hasta 4 en total.
+    """Agrega imágenes a la galería de un color del producto.
+
+    `color` va como query param. Sin él, las fotos quedan como generales:
+    se muestran sin importar qué círculo toque la clienta (el detalle del
+    cierre, la etiqueta, el interior).
+
+    El tope es por color, no sobre el total del producto — un bolso en
+    cuatro colores necesita fotos de cada uno.
 
     Ninguna es obligatoria: un producto puede quedarse sin imágenes. Se
     pueden mandar varias en el mismo request (campo `files` repetido).
@@ -139,14 +197,14 @@ async def upload_images(
     if len(files) > product_service.MAX_PRODUCT_IMAGES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Máximo {product_service.MAX_PRODUCT_IMAGES} imágenes por producto.",
+            detail=f"Máximo {product_service.MAX_PRODUCT_IMAGES} imágenes por color.",
         )
 
     subidas = [await upload_product_image(file, product_id) for file in files]
 
     try:
         return product_service.add_product_images(
-            db, product_id, [(subida.url, subida.path) for subida in subidas]
+            db, product_id, [(subida.url, subida.path) for subida in subidas], color
         )
     except product_service.TooManyProductImagesError as exc:
         # Ya estaban en el bucket cuando se supo que no cabían: se limpian

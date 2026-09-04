@@ -51,7 +51,6 @@ def create(
     db: Session,
     *,
     name: str,
-    color: str,
     price,
     stock: int,
     category_id: int,
@@ -65,7 +64,6 @@ def create(
 ) -> Product:
     product = Product(
         name=name,
-        color=color,
         height_cm=height_cm,
         width_cm=width_cm,
         compartments=compartments,
