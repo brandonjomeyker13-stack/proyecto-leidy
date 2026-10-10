@@ -39,7 +39,12 @@ def apply_stock_delta(db: Session, product: Product, delta: int) -> Product:
 
 
 def list_all(
-    db: Session, skip: int = 0, limit: int = 100, category_id: int | None = None
+    db: Session,
+    skip: int = 0,
+    # El tope de negocio es product_service.MAX_PRODUCTS_LISTED; este
+    # default solo cubre a quien llame el repositorio sin pasarlo.
+    limit: int = 1000,
+    category_id: int | None = None,
 ) -> list[Product]:
     query = db.query(Product)
     if category_id is not None:

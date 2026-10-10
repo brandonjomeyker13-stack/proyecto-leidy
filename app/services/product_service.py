@@ -36,6 +36,15 @@ from app.repositories import (
 # los tests lo leen de acá.
 MAX_PRODUCT_IMAGES = 10
 
+# Cuántos productos devuelve GET /products/ de una sola vez.
+#
+# El catálogo y el panel llaman ese listado sin paginar. Con el tope
+# anterior de 100, el producto 101 en adelante sí se guardaba, pero no
+# salía: la consulta ordena por id y se queda con los primeros, así que
+# el que acababan de subir era justo el que no aparecía. 1000 cubre la
+# tienda con margen. `skip` sigue sirviendo si algún cliente pagina.
+MAX_PRODUCTS_LISTED = 1000
+
 
 class ProductNotFoundError(Exception):
     pass

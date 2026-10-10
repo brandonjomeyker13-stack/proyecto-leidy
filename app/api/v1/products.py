@@ -24,7 +24,11 @@ router = APIRouter()
 @router.get("/", response_model=list[ProductRead])
 def list_products(
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=100),
+    limit: int = Query(
+        product_service.MAX_PRODUCTS_LISTED,
+        ge=1,
+        le=product_service.MAX_PRODUCTS_LISTED,
+    ),
     category_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
