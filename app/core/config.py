@@ -54,8 +54,11 @@ class Settings(BaseSettings):
 
     # Google OAuth: el "Client ID" de tu proyecto en Google Cloud Console
     # (OAuth consent screen / Credentials). Se usa para verificar que un
-    # id_token realmente fue emitido para TU aplicación.
-    GOOGLE_CLIENT_ID: str | None = None
+    # id_token realmente fue emitido para TU aplicación. Es público (el
+    # frontend lo muestra). Si Render define GOOGLE_CLIENT_ID, ese gana.
+    GOOGLE_CLIENT_ID: str | None = (
+        "469926197059-3jh9i11p3ohatakpu4gne0nen3hmccla.apps.googleusercontent.com"
+    )
 
     # Wompi (pasarela de pagos). En Sandbox estas llaves empiezan con
     # "pub_test_", "prv_test_", etc. En producción, con "pub_prod_".
