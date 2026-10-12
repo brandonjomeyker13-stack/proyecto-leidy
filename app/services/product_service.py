@@ -74,6 +74,14 @@ class ColorNotAvailableError(Exception):
     pass
 
 
+class StockManagedByColorError(Exception):
+    pass
+
+
+class ColorStillHasStockError(Exception):
+    pass
+
+
 def create_product(
     db: Session,
     *,
@@ -137,6 +145,16 @@ def update_product(
     product = get_product_or_raise(db, product_id)
     if category_id is not None and category_repository.get_by_id(db, category_id) is None:
         raise CategoryNotFoundError(f"Categoría {category_id} no encontrada.")
+
+    # En un producto con colores, `products.stock` es la SUMA de los
+    # colores y la calcula el backend. Dejar que se edite acá lo
+    # desincroniza del detalle sin que nadie se entere: el catálogo diría
+    # 999 y al pedir un color saltaría "no hay stock".
+    if stock is not None and product_color_repository.list_by_product(db, product_id):
+        raise StockManagedByColorError(
+            f"'{product.name}' maneja colores: el stock se carga por color, no "
+            "sobre el producto."
+        )
     return product_repository.update(
         db,
         product,
@@ -242,6 +260,24 @@ def set_product_colors(db: Session, product_id: int, colors: list[Color]) -> Pro
     colores que sí están.
     """
     product = get_product_or_raise(db, product_id)
+
+    # Quitar un color borra su fila, y con ella su stock. Si tenía
+    # unidades, eso es perder inventario en silencio: la dueña quita el
+    # negro por un rato, lo vuelve a poner, y aparece en cero sin que
+    # nada se lo haya avisado. Se exige ponerlo en 0 primero, que la
+    # obliga a mirar el número antes de perderlo.
+    pedidos = set(colors)
+    con_stock = [
+        fila.color.value.lower().replace("_", " ")
+        for fila in product_color_repository.list_by_product(db, product_id)
+        if fila.color not in pedidos and fila.stock > 0
+    ]
+    if con_stock:
+        raise ColorStillHasStockError(
+            f"No puedes quitar estos colores porque todavía tienen unidades: "
+            f"{', '.join(con_stock)}. Ponlos en 0 primero."
+        )
+
     product_color_repository.set_colors(db, product_id, colors)
     db.refresh(product)
     return product

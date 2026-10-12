@@ -51,12 +51,28 @@ _DELIVERY_TRANSITIONS: dict[OrderStatus, set[OrderStatus]] = {
 # abandonó el pago y liberamos el pedido (no bloquea stock ni el producto).
 PENDING_ORDER_TTL_HOURS = 2
 
+# Cuántos pedidos contra entrega puede tener abiertos una misma persona a
+# la vez.
+#
+# Existe porque un pedido contra entrega reserva stock y NO expira (a
+# diferencia de PENDING, que se barre a las 2 h). Sin tope, cualquiera que
+# se registre puede dejar la tienda entera reservada con pedidos que nunca
+# va a recibir, y a la dueña le toca cancelarlos uno por uno.
+#
+# 3 deja pedir de nuevo mientras esperas una entrega, sin volver el
+# acaparamiento gratis.
+MAX_PEDIDOS_CONTRA_ENTREGA_ABIERTOS = 3
+
 
 class EmptyCartError(Exception):
     pass
 
 
 class InsufficientStockError(Exception):
+    pass
+
+
+class TooManyOpenOrdersError(Exception):
     pass
 
 
@@ -172,6 +188,21 @@ def create_order_from_cart(
     if not cart_items:
         raise EmptyCartError("El carrito está vacío.")
 
+    if payment_method in CONTRA_ENTREGA:
+        abiertos = (
+            db.query(Order)
+            .filter(
+                Order.user_id == user_id,
+                Order.status == OrderStatus.CONFIRMED,
+            )
+            .count()
+        )
+        if abiertos >= MAX_PEDIDOS_CONTRA_ENTREGA_ABIERTOS:
+            raise TooManyOpenOrdersError(
+                f"Ya tienes {abiertos} pedidos pendientes de entrega. Espera a "
+                "recibirlos o cancela alguno antes de hacer otro."
+            )
+
     # La idempotencia mira el estado inicial que corresponda al método:
     # un doble clic en "pagar con Nequi" tiene que reusar el CONFIRMED que
     # acaba de crear, no armar un pedido nuevo y reservar el stock dos veces.
@@ -250,6 +281,18 @@ def create_order_from_cart(
     db.refresh(order)
 
     order.reference = _generate_reference(order.id)
+
+    # Contra entrega: la compra queda cerrada acá mismo, no hay pasarela
+    # que esperar. Si el carrito siguiera lleno, la clienta lo vería con
+    # los productos que acaba de comprar y podría pedirlos otra vez sin
+    # darse cuenta. Con Wompi el carrito se limpia recién al aprobarse el
+    # pago (ver process_wompi_transaction), porque hasta entonces la
+    # compra todavía se puede caer.
+    if payment_method in CONTRA_ENTREGA:
+        cart_repository.delete_for_user_and_products(
+            db, user_id, [item.product_id for item in order.items]
+        )
+
     db.commit()
     db.refresh(order)
     return order

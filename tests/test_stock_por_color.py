@@ -20,7 +20,7 @@ import pytest
 from app.models.color import Color
 from app.models.order import PaymentMethod
 from app.repositories import cart_repository
-from app.services import cart_service, order_service, product_service
+from app.services import cart_service, order_service
 
 # 6 grises y 4 negros: 10 en total, pero repartidos.
 COLORES = {Color.GRIS: 6, Color.NEGRO: 4}
@@ -248,10 +248,12 @@ def test_cargar_stock_exige_admin(client, bolso):
 
 
 def test_quitar_un_color_recalcula_el_total(admin_client, bolso, db):
-    admin_client.put(
-        f"/api/v1/products/{bolso.id}/colors", json={"colors": ["GRIS"]}
-    )
+    """Quitar un color exige ponerlo en 0 primero (ver test_auditoria.py),
+    así que al quitarlo el total ya no incluía sus unidades."""
+    admin_client.put(f"/api/v1/products/{bolso.id}/colors/NEGRO/stock", json={"stock": 0})
+
+    admin_client.put(f"/api/v1/products/{bolso.id}/colors", json={"colors": ["GRIS"]})
 
     db.refresh(bolso)
-    product_service.get_product_or_raise(db, bolso.id)
     assert {c.color: c.stock for c in bolso.colors} == {Color.GRIS: 6}
+    assert bolso.stock == 6

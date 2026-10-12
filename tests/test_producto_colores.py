@@ -22,9 +22,12 @@ from app.services import product_service
 PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 32
 MAX = product_service.MAX_PRODUCT_IMAGES
 
-# Los productos de este archivo se manejan por colores: el stock vive en
-# cada uno y el total del producto es la suma.
-CON_COLORES = {Color.GRIS: 6, Color.NEGRO: 4}
+# Los productos de este archivo se manejan por colores, y nacen SIN
+# unidades a propósito: acá se prueban los círculos y las fotos, no el
+# stock (eso está en test_stock_por_color.py). Además, un color con
+# unidades no se puede quitar — ver test_auditoria.py — y varios de estos
+# tests quitan colores.
+CON_COLORES = {Color.GRIS: 0, Color.NEGRO: 0}
 
 
 @pytest.fixture(autouse=True)

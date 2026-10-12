@@ -126,6 +126,10 @@ def update_product(
         if payload.colors is not None:
             producto = product_service.set_product_colors(db, product_id, payload.colors)
         return producto
+    except product_service.StockManagedByColorError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except product_service.ColorStillHasStockError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except product_service.ProductNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except product_service.CategoryNotFoundError as exc:
@@ -150,6 +154,8 @@ def set_product_colors(
     """
     try:
         return product_service.set_product_colors(db, product_id, payload.colors)
+    except product_service.ColorStillHasStockError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except product_service.ProductNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
