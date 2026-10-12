@@ -5,7 +5,25 @@ Toda variable de entorno se lee UNA sola vez, aquí. El resto del código
 importa `settings` en vez de llamar a os.getenv disperso por archivos.
 """
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def url_con_psycopg2(url: str) -> str:
+    """Deja la URL apuntando al driver que sí instalamos, psycopg2.
+
+    Supabase entrega la URI como `postgresql://` o `postgres://`.
+    SQLAlchemy reciente lee eso como el driver `psycopg` (versión 3),
+    que no está en requirements. En Render el contenedor construía bien
+    y moría al arrancar, en `import psycopg`, cuando Alembic abre la base.
+    """
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url.removeprefix("postgres://")
+    if url.startswith("postgresql+psycopg://"):
+        return "postgresql+psycopg2://" + url.removeprefix("postgresql+psycopg://")
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg2://" + url.removeprefix("postgresql://")
+    return url
 
 
 class Settings(BaseSettings):
@@ -57,6 +75,11 @@ class Settings(BaseSettings):
     # sola instancia; con varias hay que apuntarlo a un Redis compartido
     # (ej. redis://default:...@host:6379) o cada una contará por su lado.
     RATE_LIMIT_STORAGE_URI: str = "memory://"
+
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def _forzar_driver_instalado(cls, url: str) -> str:
+        return url_con_psycopg2(url)
 
     model_config = SettingsConfigDict(
         env_file=".env",
